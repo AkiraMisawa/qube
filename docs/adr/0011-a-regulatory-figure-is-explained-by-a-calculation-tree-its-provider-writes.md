@@ -256,8 +256,8 @@ of that day; the CCR sample was ported to it the same day (links in §6's last p
   see, so that a move by key does not flash it. The list's keys are said under it where the window is `sm` or wider, a
   trace in a narrow area of a desktop. Plain → and ← in the tree stay the grid's: ExGrid refuses a key it answers
   itself as a declared one, and so do Enter and Backspace, so taking them would need ExGrid to answer them on a tree's
-  column, which was put to the owner the same day. One view draws every trace, so spot IM's tree takes the same
-  keys.)*
+  column. The owner chose on 2026-11-19 to keep Alt+→ and Alt+← (CONFIRMED): ExGrid is not changed for it. One view
+  draws every trace, so spot IM's tree takes the same keys.)*
 - **A breadcrumb** of the path from the root (`K › RWA › EAD › NS-002 › PFE › AddOn › IR › USD`), each step a link,
   above the tree and the formula; it is what a phone shows instead of the tree.
 - **The formula** of the selected term, typeset: first its kind's TeX, then the same formula with the values
