@@ -53,9 +53,13 @@ public sealed record EffectiveTrade(
     // The trade's PV (ADR-0016 note 49): a figure of its legs in the display currency, set where rows are read for a
     // grid. Empty where the trade has no leg, and where the rows are read for a measure: none reads it.
     decimal? Pv = null,
-    // The package the trade is in (ADR-0016 note 90): the user's, and none until the user writes one. No measure reads
-    // it; add each makes its cases of it.
-    string? Package = null);
+    // The Package cell (ADR-0016 notes 90 and 95): the packages the trade is in, as the user wrote them, and none until
+    // the user writes one. No measure reads it; add each makes its cases of it.
+    string? Package = null)
+{
+    /// <summary>The packages the trade's Package cell names, in the order written (ADR-0016 note 95); none where it is empty.</summary>
+    public IReadOnlyList<string> Packages => PortfolioPackages.Names(Package);
+}
 
 /// <summary>
 /// A CSA of the agreement with its effective terms (ADR-0010 §8): the source's, or the user's where <c>Overridden</c>

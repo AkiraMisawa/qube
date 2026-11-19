@@ -8,42 +8,71 @@ public sealed record PackageView(string Name, IReadOnlyList<string> Adds, IReadO
 
 /// <summary>
 /// The packages of iterative addition (ADR-0016 note 90 of 2026-11-14; owner, the same day: case creation treats
-/// several trades as one package and names the trades it takes out). A trade's Package cell names the one package it
-/// is in: the new trades of a package are added together in one case, and its existing trades are taken out of After
-/// in that case alone. A New row with A ticked that is in no package is a case alone, as before. What the cells say is
-/// read here, and is never mended for the user: a cell that cannot be read as a package is refused by the trade's name.
+/// several trades as one package and names the trades it takes out). A trade's Package cell names the packages it is
+/// in, one or more separated by commas (note 95; owner, 2026-11-15): the new trades of a package are added together in
+/// one case, and its existing trades are taken out of After in that case alone. A New row with A ticked that is in no
+/// package is a case alone, as before. What the cells say is read here, and is never mended for the user: a cell that
+/// cannot be read as packages is refused by the trade's name.
 /// </summary>
 public static class PortfolioPackages
 {
-    /// <summary>The field of a trade that names its package.</summary>
+    /// <summary>The field of a trade that names its packages.</summary>
     public const string Field = "package";
 
     /// <summary>What a Package cell may hold, as a refusal says it.</summary>
-    public const string Rule = "A package is a name with no comma, such as P1, or empty for none.";
+    public const string Rule = "A Package cell names one package or more, separated by commas, such as P1 or P1, P2, or is empty for none.";
 
-    /// <summary>Why a text is not a package's name, or none where it is one: a name as written, with no space at either end and no comma.</summary>
-    public static string? Problem(string name) => name.Length > 0 && name == name.Trim() && !name.Contains(',') ? null : Rule;
+    /// <summary>
+    /// The names a Package cell holds, in the order written, the spaces around each comma being the list's; none where
+    /// the trade has no cell. The cell is one the check let through (<see cref="Problem"/>), which refuses an empty text.
+    /// </summary>
+    public static IReadOnlyList<string> Names(string? cell) => cell is null ? [] : [.. cell.Split(',').Select(name => name.Trim())];
+
+    /// <summary>The Package cell that lists the names given, in their order: what <see cref="Names"/> reads back.</summary>
+    public static string Cell(IEnumerable<string> names) => string.Join(", ", names);
+
+    /// <summary>
+    /// Why a text is not a Package cell, or none where it is one: one name or more, separated by commas, with no space at
+    /// either end of the cell, none of them empty, and none written twice, whatever the case of its letters.
+    /// </summary>
+    public static string? Problem(string cell)
+    {
+        if (cell.Length == 0 || cell != cell.Trim()) return Rule;
+        var names = Names(cell);
+        if (names.Any(name => name.Length == 0)) return Rule;
+        return names.GroupBy(name => name, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1) is { } twice
+            ? twice.Distinct(StringComparer.Ordinal).Count() == 1
+                ? $"{twice.Key} is written twice in one Package cell; write each package once."
+                : $"{TableWords.And(twice.Distinct(StringComparer.Ordinal))} are one name written twice in one Package cell, whatever the case of its letters; write each package once."
+            : null;
+    }
+
+    /// <summary>Why a text is not one package's name, as a package given by name must be: no space at either end and no comma.</summary>
+    public static string? NameProblem(string name) =>
+        name.Length > 0 && name == name.Trim() && !name.Contains(',') ? null : "A package is one name with no comma, such as P1.";
 
     /// <summary>The packages the cells name, in the order of their first trade: the New rows first, then the existing.</summary>
     public static IReadOnlyList<PackageView> Named(IReadOnlyList<EffectiveTrade> trades)
     {
-        var ordered = trades.Where(t => t.IsNew).Concat(trades.Where(t => !t.IsNew)).ToList();
-        return [.. ordered.Select(t => t.Package).OfType<string>().Distinct(StringComparer.Ordinal).Select(name => new PackageView(name,
-            [.. ordered.Where(t => t.IsNew && t.Package == name).Select(t => t.TradeId)],
-            [.. ordered.Where(t => !t.IsNew && t.Package == name).Select(t => t.TradeId)]))];
+        // Each cell read once: a workspace holds thousands of trades.
+        var ordered = trades.Where(t => t.IsNew).Concat(trades.Where(t => !t.IsNew)).Select(t => (Trade: t, Names: t.Packages)).Where(t => t.Names.Count > 0).ToList();
+        return [.. ordered.SelectMany(t => t.Names).Distinct(StringComparer.Ordinal).Select(name => new PackageView(name,
+            [.. ordered.Where(t => t.Trade.IsNew && t.Names.Contains(name, StringComparer.Ordinal)).Select(t => t.Trade.TradeId)],
+            [.. ordered.Where(t => !t.Trade.IsNew && t.Names.Contains(name, StringComparer.Ordinal)).Select(t => t.Trade.TradeId)]))];
     }
 
-    /// <summary>The first name of <c>P1</c>, <c>P2</c>, … that no trade's package is, whatever the case of its letters.</summary>
+    /// <summary>The first name of <c>P1</c>, <c>P2</c>, … that no cell names, whatever the case of its letters.</summary>
     public static string NextFree(IReadOnlyList<EffectiveTrade> trades)
     {
-        var taken = trades.Select(t => t.Package).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var taken = trades.SelectMany(t => t.Packages).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return Enumerable.Range(1, taken.Count + 1).Select(n => $"P{n}").First(name => !taken.Contains(name));
     }
 
     /// <summary>
     /// The set <c>add each</c> makes of the trades as the Base holds them (docs/03 §5, ADR-0016 §3 and note 90): a case
-    /// per package and one per New row with A ticked that is in none, in the order of the rows, the New grid's first.
-    /// Never cumulative: each case adds its own new trades alone. Refused by the trades' names, with nothing made: two
+    /// per package and one per New row with A ticked that is in none, in the order of the rows, the New grid's first, and
+    /// a row's packages in the order its cell writes them. A row in several packages is in each of their cases (note
+    /// 95). Never cumulative: each case adds its own new trades alone. Refused by the trades' names, with nothing made: two
     /// packages whose names differ only in case, a New row of a package with A clear, a new trade to add that is in
     /// Before, and an existing trade of a package that the Base does not have in After; and a set of no case. An
     /// existing trade of a package in After alone is taken out too, so its case holds it in neither (ADR-0016 note 91).
@@ -60,11 +89,11 @@ public static class PortfolioPackages
     {
         var news = trades.Where(t => t.IsNew).ToList();
         var existing = trades.Where(t => !t.IsNew).ToList();
-        if (news.Concat(existing).Select(t => t.Package).OfType<string>().Distinct(StringComparer.Ordinal).GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
+        if (news.Concat(existing).SelectMany(t => t.Packages).Distinct(StringComparer.Ordinal).GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.ToList()).FirstOrDefault(names => names.Count > 1) is { } clash)
             throw new WorkspaceRefused("PackageNamesDiffer",
                 $"The packages {TableWords.And(clash)} differ only in the case of their letters, and whether they are one is not guessed. Write one name on all of their trades.");
-        if (news.Where(t => t.Package is not null && !t.After).ToList() is { Count: > 0 } clear)
+        if (news.Where(t => t.Packages.Count > 0 && !t.After).ToList() is { Count: > 0 } clear)
         {
             var (them, their) = Pronouns(clear);
             throw new WorkspaceRefused("CandidateNotTicked",
@@ -75,11 +104,11 @@ public static class PortfolioPackages
             var (are, them) = inBefore.Count == 1 ? ("is", "it") : ("are", "them");
             var ids = string.Join(", ", inBefore.Select(t => t.TradeId));
             // A trade alone may also be left out by clearing A; one in a package is then refused as above.
-            throw new WorkspaceRefused("CandidateInBefore", inBefore.All(t => t.Package is null)
+            throw new WorkspaceRefused("CandidateInBefore", inBefore.All(t => t.Packages.Count == 0)
                 ? $"{ids} {are} in Before, and a new trade is priced alone only out of Before. Clear B on {them}, or A to leave {them} out, then add each again."
                 : $"{ids} {are} in Before, and add each adds a new trade only out of Before. Clear B on {them}, then add each again.");
         }
-        if (existing.Where(t => t.Package is not null && !t.After).ToList() is { Count: > 0 } outside)
+        if (existing.Where(t => t.Packages.Count > 0 && !t.After).ToList() is { Count: > 0 } outside)
         {
             var (them, their) = Pronouns(outside);
             throw new WorkspaceRefused("NotInAfter",
@@ -87,16 +116,14 @@ public static class PortfolioPackages
         }
         // A trade After holds and Before does not may be in a package: its case holds it in neither, as if it had not
         // been added (ADR-0016 note 91, the owner's choice of 2026-11-14 over refusing it).
+        var packages = Named(trades).ToDictionary(p => p.Name, StringComparer.Ordinal);
         var set = new List<Iteration>();
         var made = new HashSet<string>(StringComparer.Ordinal);
         foreach (var t in news.Concat(existing))
         {
-            if (t.Package is { } name)
-            {
-                if (made.Add(name))
-                    set.Add(new([.. news.Where(n => n.Package == name).Select(n => n.TradeId)], [.. existing.Where(e => e.Package == name).Select(e => e.TradeId)], name));
-            }
-            else if (t.IsNew && t.After) set.Add(new([t.TradeId], []));
+            foreach (var name in t.Packages)
+                if (made.Add(name)) set.Add(new(packages[name].Adds, packages[name].TakesOut, name));
+            if (t.Packages.Count == 0 && t.IsNew && t.After) set.Add(new([t.TradeId], []));
         }
         return set;
     }
@@ -104,9 +131,9 @@ public static class PortfolioPackages
     // How a refusal's sentence speaks of the trades it names: one, or several.
     static (string Them, string Their) Pronouns(IReadOnlyList<EffectiveTrade> trades) => trades.Count == 1 ? ("it", "its") : ("them", "their");
 
-    // The trades a refusal names and where they are: `DRAFT-3 is in the package P1`, or `DRAFT-3 (P1) and DRAFT-4 (P2)
-    // are in packages`.
+    // The trades a refusal names and where they are: `DRAFT-3 is in the package P1`, `DRAFT-3 is in the packages P1 and
+    // P2`, or `DRAFT-3 (P1) and DRAFT-4 (P1, P2) are in packages`.
     static string InPackages(IReadOnlyList<EffectiveTrade> trades) => trades.Count == 1
-        ? $"{trades[0].TradeId} is in the package {trades[0].Package}"
-        : $"{TableWords.And(trades.Select(t => $"{t.TradeId} ({t.Package})"))} are in {(trades.Select(t => t.Package).Distinct().Count() == 1 ? "a package" : "packages")}";
+        ? $"{trades[0].TradeId} is in the {(trades[0].Packages.Count == 1 ? "package" : "packages")} {TableWords.And(trades[0].Packages)}"
+        : $"{TableWords.And(trades.Select(t => $"{t.TradeId} ({Cell(t.Packages)})"))} are in {(trades.SelectMany(t => t.Packages).Distinct().Count() == 1 ? "a package" : "packages")}";
 }

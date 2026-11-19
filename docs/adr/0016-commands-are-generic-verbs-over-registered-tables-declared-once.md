@@ -2803,7 +2803,8 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
 
 90. **A package is a cell of the trade (§1, §3).** The trades table gains `package`: a text of the Id form,
     optional, drawn as the **Package** column right of A on both trade grids. A trade's cell names the one package it
-    is in, or none.
+    is in, or none. *Amended 2026-11-15, note 95: the packages it is in, one or more separated by commas; the column
+    keeps the Id form, which reads any text that is not empty, and the list is checked as note 95 says.*
     - *What a package is.* The New rows that share a name are added together in one case. The existing rows with that
       name are taken out of After in that case alone, and are in Before there as the Base has them (note 91 tables
       every combination). A New row with A ticked and no package is a case alone, as before. A package of existing rows alone is a case that only takes them out (an unwind), which
@@ -2818,7 +2819,8 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
       dialog drop the spaces at either end of what was typed, as an identifier's cell does (a CSA's, a curve's); the
       cell sends an empty one as none, and the dialog asks for a name. The AI's request is held to the rule as
       written. The comma is kept for a row in
-      several packages, below. Two names that differ only in the case of their letters are refused by `add each`
+      several packages, below. *Amended 2026-11-15, note 95: a cell is a list of such names, and the comma is the
+      list's; the sentence is now that note's.* Two names that differ only in the case of their letters are refused by `add each`
       (`PackageNamesDiffer`), never taken as one or as two.
     - *What kind of field.* It is a field of membership, as B and A are (`xva.membership`), kept in the
       counterparty's scope as they are, so a case's reading may differ from the Base's. Original has no package, so a
@@ -2826,10 +2828,13 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
       (`NotVaried`): a package is made a case by `add each`, and no value of it is a case of `vary`.
     - *One package a row (put to the owner the same day, the one question of the design).* Several (`P1, P2`) would
       let two alternatives take out the same existing trade, or add the same new one. Built when he asks for it.
+      *Answered 2026-11-15: several (the owner, 「その後に複数パッケージのサポートを開始して」, "then start supporting
+      several packages"); note 95.*
 91. **`add each` makes its set from the cells (§3; amends note 37's value and what is made).** A case per package,
     and one per New row with A ticked that is in none, in the order of their first rows: the New grid's, then the
     Existing grid's. Never cumulative: each case adds its own new trades alone, and in its reading A is clear on every
-    other candidate and on the trades it takes out.
+    other candidate and on the trades it takes out. *Amended 2026-11-15, note 95: a row in several packages is in each
+    of their cases, as the table's rows with a package say for each package it names.*
     - *Refused by name, with nothing made:* two packages whose names differ only in case; a New row of a package with
       A clear (`CandidateNotTicked`); a new trade to add that is in Before (`CandidateInBefore`, as before); an
       existing trade of a package that the Base has not in After (`NotInAfter`); and a set of no case (`NothingToAdd`).
@@ -2866,7 +2871,8 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
       E00004`), and leaves the trade out of the common change it names, which P1's case does not carry; every other
       case's title names it there (docs/03 §5). As first written, before review, the title named it both ways.
 
-      *Make package…* writes the package on the rows the two selections name and nothing else. It makes the set from
+      *Make package…* writes the package on the rows the two selections name and nothing else (*amended, note 95:*
+      adds it to their cells, which keep the packages they name). It makes the set from
       every row, as `add each` does, so a row the table refuses, written by it or not, refuses the whole command, with
       nothing written.
     - *As before:* the set made before is replaced whole, the cases of `vary` stay, and the cap is Price's
@@ -2899,11 +2905,13 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
     command writes the name on each whose cell differs and makes the set from the cells, in one entry of the log,
     which one `undo` takes back. Left out, the name is the first of `P1`, `P2`… that no trade's package is, whatever
     the case of its letters. A trade in another package moves to this one, and the answer says so (`Wrote P2 on
-    DRAFT-2 (from P1) and DRAFT-3; made 3 case(s): …`). Refused by name: a name given with `trades` left out
+    DRAFT-2 (from P1) and DRAFT-3; made 3 case(s): …`). *Amended 2026-11-15, note 95: the name is added to each cell
+    that does not name it, a trade stays in the packages it is in, and the answer says `DRAFT-2 (also in P1)`.* Refused by name: a name given with `trades` left out
     (`NothingGiven`), an id that is no trade (`UnknownTarget`), a trade named twice (`GivenTwice`) and a name a cell
     cannot hold (`InvalidValue`); an empty list is the contract's to refuse (`At least 1 item is required.`). The log
     names it as the answer does, `add each: package P1 on DRAFT-1, DRAFT-2 and E00003`, a trade that moves as
-    `DRAFT-2 (from P1)`, and `add each` where none is given.
+    `DRAFT-2 (from P1)` (*amended, note 95:* a trade in others as `DRAFT-2 (also in P1)`), and `add each` where none
+    is given.
     - *Why retired.* `iterations` was a set held in no cell, and `keep` was there only because a press made one case
       beside a set gone stale. Both are the cells now. The AI writes them as the user does, with `set` on the
       trades' `package`, then `add each`, or gives `package` and `trades` to this command; the line has `set` and
@@ -2913,7 +2921,8 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
     - *`Make package…`* in the New grid's caption, and *Make package from the selection…* on both trade grids'
       Context Menus, replace `Make case…`. The dialog lists what the selections name as note 37's did, the New grid's
       as the trades the package adds and the Existing grid's as those it takes out, each of which may be left out by
-      its own press; a trade already in a package says which. Its name is a field, given the next free name, which the
+      its own press; a trade already in a package says which (*amended, note 95:* `also in P1`, where it said
+      `from P1`). Its name is a field, given the next free name, which the
       workspace's view says (`nextPackage`, the server's rule and not the page's), and a name already written adds
       the trades to that package. *Make package* invokes `xva.trades.add` with `package`
       and `trades`: the cells are written and the set made anew in one command, and the notice is the server's
@@ -2921,6 +2930,45 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
     - *The Changes tab* shows each case's package and its two lists, read only. Note 37's buttons that left one trade
       out of a case are removed: a trade leaves a package by its cell, then `add each`. Its known limit (a stale case
       refusing such a press) goes with them.
+
+95. **A row in several packages (the owner, 2026-11-15, answering note 90's one question: 「その後に複数パッケージのサポートを
+    開始して」, "then start supporting several packages"; how it is built is DEFAULT).**
+    - *The cell* lists the packages its trade is in, separated by commas, such as `P1, P2`. It is kept as written,
+      and read in that order, the spaces around each comma being the list's. Refused as `InvalidValue`, with nothing
+      written: an empty name (`P1,`, `P1,, P2`), a space at either end of the cell as a request gives it (the page's
+      cell trims what is typed, as note 90 says), and a name written twice, whatever the case of its letters (`P1 is
+      written twice in one Package cell; write each package once.`, `P1 and p1 are one name written twice in one
+      Package cell, whatever the case of its letters; write each package once.`). The rule's sentence is `A Package
+      cell names one package or more, separated by commas, such as P1 or P1, P2, or is empty for none.`
+    - *What it means.* A row in P1 and P2 is in both packages' cases: a new row is added in each, and an existing row
+      is taken out of After in each, so two alternatives may add one new trade, or take out one existing trade. Each
+      case is still one package, titled as note 91 says. The cases come in the order of their first rows, as before,
+      and a row's packages in the order its cell writes them. Note 91's table holds for each package a row names, and
+      the refusals that name a row's package name every package it is in (`CandidateNotTicked`: `DRAFT-1 is in the
+      packages P1 and P2 and has A clear, …`, `DRAFT-1 (P1, P2) and DRAFT-2 (P2) are in packages and have A clear,
+      …`; `NotInAfter` alike). `CandidateInBefore` names the trades alone, as before: what it asks, clearing B, is the
+      same whatever their packages. `PackageNamesDiffer` reads every name
+      of every cell, and the next free name skips every name written.
+    - *Make package and `xva.trades.add` add, and no longer move (amends note 93).* The name given is added at the
+      end of each trade's cell that does not name it; a trade keeps the packages it is in, and one already in the
+      package is left as it is. The answer and the log say which others a trade stays in, in the order of the
+      workspace's packages (that of their cases): `Wrote P2 on DRAFT-2 (also in P1) and DRAFT-3; made …`. The package given is one name (`InvalidValue: A package is one name with no comma,
+      such as P1.`): a cell is written whole by `set <trades> package P1, P2`, and a trade leaves a package by its
+      cell, as note 94 says. A name added to a cell that names it in other letters is refused as that cell would be,
+      never taken as the same package. *Why add:* moving followed from one package a row. With several, a trade that
+      stays in another package is what the owner asked for, and moving it would take it out of an alternative
+      unsaid.
+    - *The dialog* marks a trade `also in P1` (`also in P1, P2` for several, in the same order as the answer) where
+      it marked `from P1`, and its hint says the trade stays there.
+    - *Filters, a known limit.* `package = P1` compares the whole cell, so it does not find `P1, P2`; `package ~ P1`
+      matches text, so it finds `P1, P2`, and `P10` too. No filter of list membership is made: no command needs it
+      yet.
+    - *The table's description, a known limit.* `tables.describe` says the field is of the Id form, "an identifier,
+      or empty": a field has no sentence of its own in the kernel. What a cell may list is in `xva.trades.add`'s
+      contract (`set <trades> package P1, P2 writes a cell whole`) and in the refusal's sentence; a kernel sentence
+      per field would be a change to §1, not made here.
+    - *The input Price freezes* holds each trade's `package` as its cell is written, and each case's own `package`
+      and lists, as note 91 says.
 
 ### Note of 2026-11-14: the value date and the counterparty are commands
 

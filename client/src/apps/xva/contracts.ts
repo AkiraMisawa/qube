@@ -37,8 +37,9 @@ export interface EffectiveTrade {
   readonly before: boolean;
   readonly after: boolean;
   /**
-   * The one package of iterative addition the trade is in (ADR-0016 note 90); left out where it is in none. The New
-   * rows of a package are added together in its case, and its existing rows taken out of After there.
+   * The Package cell: the packages of iterative addition the trade is in, as written, one or more separated by commas
+   * (ADR-0016 notes 90 and 95); left out where it is in none. The New rows of a package are added together in its
+   * case, and its existing rows taken out of After there; a row in several is in each of their cases.
    */
   readonly package?: string | null;
   /** Why this row cannot be priced as it stands; Price is refused while any priced row has one. */
