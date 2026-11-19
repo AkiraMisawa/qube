@@ -68,7 +68,9 @@ test('ADR-0019 §4: the Position Keeper page says which book it shows: the engin
   await expect(rows(page, xva).first()).toContainText('C0003');
   const largest = row(page, xva, /^C0003 SYN-LE-0003 -121,795,568 2,808,652 -16,526,306 /);
   await expect(largest).toBeVisible();
-  await expect(grid(page, xva).locator('.ex-tone-negative')).toHaveCount(0);
+  // A negative amount is red, an adjustment included (C48).
+  await expect(grid(page, xva).locator('.ex-tone-negative').first()).toBeVisible();
+  await expect(page.getByTestId('pk-pnl-reads')).toContainText('+ is a gain');
   // The totals say what they are of: a metric summed over the counterparties, and no standard error.
   await expect(page.getByTestId('pk-totals')).toContainText('CVA -128,935,334');
   await expect(page.getByTestId('pk-totals')).toContainText('FVA -20,880,352');

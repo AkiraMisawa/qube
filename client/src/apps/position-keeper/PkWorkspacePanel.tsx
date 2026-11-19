@@ -45,18 +45,17 @@ function columnsIn(scale: Scale, metrics: readonly string[], tenors: readonly st
   const format = written(scale);
   // A sensitivity, a hedge's value and a profit and loss change sign with the position: a negative one is painted as a loss.
   const figure = { type: 'number' as const, format, tone: toneOf(format), width: 150 };
-  // An adjustment is a cost, negative for every counterparty: painted red it would say nothing, so it takes no tone
-  // and red stays for the figures whose sign is news. A standard error is a size, and takes none either.
+  // An adjustment is an amount, and a negative amount is red on every page (C48). A standard error is a size.
   const plain = { type: 'number' as const, format };
 
   const xva: GridColumn<XvaRow>[] = [
     { name: 'counterparty', header: 'Counterparty', type: 'text', width: 110, value: (c) => c.counterparty, format: text },
     { name: 'legalEntity', header: 'Legal entity', type: 'text', width: 120, value: (c) => c.legalEntity, format: text },
     ...metrics.flatMap((metric): GridColumn<XvaRow>[] => [
-      { name: metric, header: metric, ...plain, width: 130, value: (c) => c.byMetric[metric]?.value },
+      { name: metric, header: metric, ...figure, width: 130, value: (c) => c.byMetric[metric]?.value },
       { name: `${metric}.stdError`, header: `± ${metric}`, ...plain, width: 100, value: (c) => c.byMetric[metric]?.stdError },
     ]),
-    { name: 'total', header: 'Total', ...plain, width: 130, value: (c) => c.total },
+    { name: 'total', header: 'Total', ...figure, width: 130, value: (c) => c.total },
   ];
 
   const term = (name: string, header: string, width: number): GridColumn<HedgeRow> =>
@@ -129,12 +128,12 @@ const VALUES_ROWS = 12;
 /** The risk lines shown, kept by the panel while it is hidden (ADR-0006 note 10): one kind and input, or every line. */
 const RISK_OF = panelKey<string | null>('pk.riskOf');
 
-/** A figure outside a grid, written in the page's scale; a loss in red where the figure's sign is news (`toned`). */
-function Amount({ label, value, scale, toned = true }: { readonly label: string; readonly value: number; readonly scale: Scale; readonly toned?: boolean }) {
+/** A figure outside a grid, written in the page's scale; a negative one in red (C48). */
+function Amount({ label, value, scale }: { readonly label: string; readonly value: number; readonly scale: Scale }) {
   const shown = written(scale)(value);
   return (
     <Text size="sm" span>
-      {label} <span className="qube-number" {...(toned && shown.startsWith('-') ? { 'data-negative': true } : {})}>{shown}</span>
+      {label} <span className="qube-number" {...(shown.startsWith('-') ? { 'data-negative': true } : {})}>{shown}</span>
     </Text>
   );
 }
@@ -316,7 +315,7 @@ export function PkWorkspacePanel({ panelId, workspaceId, api }: { readonly panel
           <Title order={3} size="sm">XVA by counterparty</Title>
           <Group gap="md" wrap="wrap" data-testid="pk-totals">
             <Text size="xs" c="dimmed">Total of {p.counterparties.length} counterparties (no standard error: they share paths)</Text>
-            {p.totals.map((total) => <Amount key={total.metric} label={total.metric} value={total.value} scale={scale} toned={false} />)}
+            {p.totals.map((total) => <Amount key={total.metric} label={total.metric} value={total.value} scale={scale} />)}
           </Group>
           <PkGrid name="pk/xva" label="XVA by counterparty" rows={xva} rowKey={xvaKey} columns={columns.xva} most={VALUES_ROWS} pinned={1} gridRef={valuesGrid} />
         </section>
@@ -325,7 +324,7 @@ export function PkWorkspacePanel({ panelId, workspaceId, api }: { readonly panel
           <Title order={3} size="sm">What-if hedges</Title>
           {/* Not dimmed: the lines to type are read, and code on a dimmed line falls below 4.5:1 (docs/design-guidelines.md §7). */}
           <Text size="xs">
-            Hypothetical, never a position. On the command line: <Code>new irs 5y jpy 1bn pay 1.2%</Code>, <Code>set hedge H1 notional 2bn</Code>, <Code>remove hedge H1</Code>.
+            Hypothetical, never a position, and outside every netting set: a what-if hedge adds its own value and risk to Net, and no XVA. On the command line: <Code>new irs 5y jpy 1bn pay 1.2%</Code>, <Code>set hedge H1 notional 2bn</Code>, <Code>remove hedge H1</Code>.
           </Text>
           {hedges.length === 0
             ? <Text size="sm" data-testid="pk-no-hedges">No what-if hedge: every figure below is the engine&apos;s.</Text>
@@ -370,6 +369,9 @@ export function PkWorkspacePanel({ panelId, workspaceId, api }: { readonly panel
                 </>
               )}
           </Group>
+          <Text size="xs" data-testid="pk-pnl-reads">
+            + is a gain. First order only: theta, gamma, cross gamma and trade activity are not in it.
+          </Text>
           {/* Not dimmed: the lines to type are read (docs/design-guidelines.md §7). */}
           <Text size="xs">
             A whole kind is moved from the command line: <Code>set moves where kind=zero_rate move 10bp</Code>, <Code>set moves where kind=fx_spot move 1%</Code>.
