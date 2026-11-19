@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TermPage, TermRead } from './contracts';
-import { childrenOf, opened, treeRows, type ChildrenRead } from './tree';
+import { RowVersions, childrenOf, childrenShown, opened, treeMove, treeRows, type ChildrenRead } from './tree';
 
 // ADR-0011 §6: the tree holds only the terms on the paths opened, each indented by its depth. Synthetic terms.
 
@@ -55,5 +55,81 @@ describe('the tree of terms (ADR-0011 §6)', () => {
 
   it('opens every term above one on a path, so it shows', () => {
     expect([...opened(new Set(['x']), [{ id: 'capital' }, { id: 'rwa' }, { id: 'ead' }])]).toEqual(['x', 'capital', 'rwa']);
+  });
+});
+
+// Akira, 2026-11-18: exploring the drill-down with the arrow keys, one press after another. Alt+→ opens a closed term
+// and goes into an open one; Alt+← closes an open term and goes up from a closed one (ADR-0011 §6's note of that day).
+describe('the keys of the tree (ADR-0011 §6)', () => {
+  const read = new Map<string, ChildrenRead>([
+    ['capital', { kind: 'pages', pages: [page(capital, [rwa])] }],
+    ['rwa', { kind: 'pages', pages: [page(rwa, [rw, ead])] }],
+  ]);
+  // capital (open) › rwa (open) › rw (closed), ead (closed)
+  const rows = treeRows([capital], new Set(['capital', 'rwa']), (id) => read.get(id));
+  const at = (id: string) => rows.findIndex((r) => r.key === id);
+
+  it('Alt+→ opens a closed term, goes into an open one, and does nothing on a term without children', () => {
+    expect(treeMove(rows, at('ead'), 'in')).toEqual({ kind: 'open', termId: 'ead' });
+    expect(treeMove(rows, at('rwa'), 'in')).toEqual({ kind: 'into', termId: 'rwa' });
+    const leaf = treeRows([term('rw/class')], new Set(), () => undefined);
+    expect(treeMove(leaf, 0, 'in')).toEqual({ kind: 'none' });
+  });
+
+  it('Alt+← closes an open term, goes up from a closed one to its parent, and does nothing on a closed root', () => {
+    expect(treeMove(rows, at('rwa'), 'out')).toEqual({ kind: 'close', termId: 'rwa' });
+    // ead's parent is rwa, not rw, the row just above it a level deeper.
+    expect(treeMove(rows, at('ead'), 'out')).toEqual({ kind: 'goTo', termId: 'rwa' });
+    expect(treeMove(treeRows([capital], new Set(), () => undefined), 0, 'out')).toEqual({ kind: 'none' });
+  });
+
+  it('Alt+← on a row that stands for the children of a term goes up to that term; Alt+→ there does nothing', () => {
+    const loading = treeRows([capital], new Set(['capital']), () => ({ kind: 'loading' }));
+    const failed = treeRows([capital], new Set(['capital']), () => ({ kind: 'failed', reason: 'TraceExpired: the Run is past retention.' }));
+    const more = treeRows([ead], new Set(['ead']), () => ({ kind: 'pages', pages: [page(ead, [term('NS-1')], 3)] }));
+
+    for (const shown of [loading, failed, more]) {
+      const last = shown.length - 1;
+      expect(shown[last]?.kind).not.toBe('term');
+      expect(treeMove(shown, last, 'out')).toEqual({ kind: 'goTo', termId: shown[0]!.termId });
+      expect(treeMove(shown, last, 'in')).toEqual({ kind: 'none' });
+    }
+  });
+
+  it('answers nothing for a position outside the rows, rather than acting on another row', () => {
+    expect(treeMove(rows, rows.length, 'in')).toEqual({ kind: 'none' });
+    expect(treeMove(rows, -1, 'out')).toEqual({ kind: 'none' });
+  });
+
+  it('goes into the first child once the children are shown, waits while they are read, and stays where there is none', () => {
+    expect(childrenShown(rows, 'rwa')).toEqual({ kind: 'shown', first: 'rw' });
+    expect(childrenShown(treeRows([capital], new Set(['capital']), () => ({ kind: 'loading' })), 'capital')).toEqual({ kind: 'reading' });
+    const failed = treeRows([capital], new Set(['capital']), () => ({ kind: 'failed', reason: 'TraceExpired: the Run is past retention.' }));
+    expect(childrenShown(failed, 'capital')).toEqual({ kind: 'shown', first: undefined });
+    const none = treeRows([capital], new Set(['capital']), () => ({ kind: 'pages', pages: [page(capital, [], 0)] }));
+    expect(childrenShown(none, 'capital')).toEqual({ kind: 'shown', first: undefined });
+  });
+
+  it('says a term is gone where it was closed, or is no row of the tree, so that nothing waits on it', () => {
+    expect(childrenShown(rows, 'ead')).toEqual({ kind: 'gone' });
+    expect(childrenShown(rows, 'NS-404')).toEqual({ kind: 'gone' });
+  });
+
+  it('reads a press against the rows of its version while that version is kept, and refuses an older one', () => {
+    const versions = new RowVersions(2);
+    const closed = treeRows([capital], new Set(), () => undefined);
+    versions.put(5, 0, closed);
+    versions.put(6, 10, rows);
+    // A position is read in the rows of its version, from that version's first position.
+    expect(versions.rowAt(5, 0)?.key).toBe('capital');
+    expect(versions.rowAt(6, 12)?.key).toBe('rw');
+    expect(versions.rowAt(6, 9)).toBeUndefined();
+    expect(versions.rowAt(6, undefined)).toBeUndefined();
+    // Past two versions on, version 5 is no longer kept: a press under it is not read against the rows of another.
+    versions.put(8, 0, rows);
+    expect(versions.has(5)).toBe(false);
+    expect(versions.rowAt(5, 0)).toBeUndefined();
+    expect(versions.has(6)).toBe(true);
+    expect(versions.has(7)).toBe(false);
   });
 });

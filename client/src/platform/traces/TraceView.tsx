@@ -8,6 +8,8 @@ import { operandTargets, stateText } from './formula';
 import { EntityRows } from './EntityRows';
 import { belowViews, entitySetOf, splits } from './entities';
 import { LeafRows } from './LeafRows';
+import { useDrillKeys } from './drillKeys';
+import { KeyHints, type KeyHint } from './KeyHints';
 import { DEFAULT_TRACE_VIEW, explainLine, keptTrace, setTraceView, traceViews, useTermRequestOnce } from './open';
 import { TermDetail } from './TermDetail';
 import { TraceTree } from './TraceTree';
@@ -165,12 +167,15 @@ export function TraceView({ viewId, address, api, registerFocus, root }: {
 
   /** Selects a term from outside the grid (breadcrumb, operand, step, list), and puts the grid's Focus on it. */
   const select = (id: string) => { setSelected(id); setPlace((p) => p + 1); };
+  /** Opens or closes a term; where the Focus goes is the tree's, which puts it on the row whose button was pressed. */
   const toggle = (id: string, isOpen: boolean) => {
     setOpen((current) => { const next = new Set(current); if (isOpen) next.add(id); else next.delete(id); return next; });
-    select(id);
   };
   const more = (id: string) => setPagesAsked((p) => ({ ...p, [id]: (p[id] ?? 1) + 1 }));
   const reorder = (next: ChildOrder) => setTraceView(viewId, { order: next });
+
+  // Below `sm`, the list of the selected term's children takes the arrow keys (ADR-0011 §6's note of 2026-11-18).
+  const drill = useDrillKeys({ where: address, selected: selectedId, path: selectedPage?.path, children: selectedId === undefined ? undefined : childrenOf(selectedId), select });
 
   if (first.isPending) return <Text size="sm" data-testid="trace-loading">Reading the trace…</Text>;
   if (first.isError) return <Alert color="red" variant="light" title="The trace could not be read" data-testid="trace-refused">{describe(first.error)}</Alert>;
@@ -231,9 +236,11 @@ export function TraceView({ viewId, address, api, registerFocus, root }: {
       )}
       {explainText !== undefined && <ExplainLine text={explainText} />}
       {phone ? (
-        <Stack gap="sm">
+        <Stack gap="sm" ref={drill.frame} tabIndex={-1} onKeyDown={drill.onKeyDown} className="qube-trace-drill" data-testid="trace-drill" aria-label="Term and the terms below">
           {detail}
-          {selectedId !== undefined && <ChildrenList header={trace} read={childrenOf(selectedId)} onSelect={select} onMore={() => more(selectedId)} />}
+          {selectedId !== undefined && <ChildrenList header={trace} read={childrenOf(selectedId)} onSelect={drill.pick} onMore={() => more(selectedId)} />}
+          {drill.note !== undefined && <Text size="xs" role="status" data-testid="trace-drill-note">{drill.note}</Text>}
+          <KeyHints label="Keys in the list" testId="trace-drill-keys" hints={DRILL_KEYS} />
           {leafRows}
         </Stack>
       ) : (
@@ -320,7 +327,7 @@ function TraceHeaderBar({ header, title, order, onOrder }: {
  * whether it governs, each opening the next level.
  */
 function ChildrenList({ header, read, onSelect, onMore }: {
-  readonly header: TraceHeader; readonly read: ChildrenRead | undefined; readonly onSelect: (id: string) => void; readonly onMore: () => void;
+  readonly header: TraceHeader; readonly read: ChildrenRead | undefined; readonly onSelect: (id: string, label: string) => void; readonly onMore: () => void;
 }) {
   if (read === undefined || read.kind === 'loading') return <Text size="xs">Reading its terms…</Text>;
   if (read.kind === 'failed') return <Text size="xs" c="red">{read.reason}</Text>;
@@ -336,7 +343,8 @@ function ChildrenList({ header, read, onSelect, onMore }: {
         });
         const mark = governsMark(child, header);
         return (
-          <UnstyledButton key={child.id} className="qube-trace-child" onClick={() => onSelect(child.id)} data-state={states.length > 0 ? 'other' : 'value'}
+          <UnstyledButton key={child.id} className="qube-trace-child" onClick={() => onSelect(child.id, child.label)} data-state={states.length > 0 ? 'other' : 'value'}
+            data-drill-item data-child-id={child.id} data-child-label={child.label}
             {...(mark === undefined ? {} : { 'data-governs': mark.governs })}>
             <span className="qube-trace-child-label">
               {child.label}
@@ -347,7 +355,14 @@ function ChildrenList({ header, read, onSelect, onMore }: {
           </UnstyledButton>
         );
       })}
-      {children.length < total && <Button size="xs" variant="subtle" onClick={onMore}>Read {total - children.length} more of {total}</Button>}
+      {children.length < total && <Button size="xs" variant="subtle" onClick={onMore} data-drill-item>Read {total - children.length} more of {total}</Button>}
     </Stack>
   );
 }
+
+// The list's keys, said below it: ↑ and ↓ choose a child, → or Enter goes into it, ← or Backspace goes up.
+const DRILL_KEYS: readonly KeyHint[] = [
+  { keys: [['↑'], ['↓']], does: 'choose' },
+  { keys: [['→'], ['Enter']], or: true, does: 'go in' },
+  { keys: [['←'], ['Backspace']], or: true, does: 'go up' },
+];

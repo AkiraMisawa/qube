@@ -31,6 +31,30 @@ The primary deliverable is capability AND UI composition: independent Capability
 - Dynamic views are validated declarative specifications rendered through approved components, never arbitrary generated HTML, C#, JavaScript or SQL.
 - Keyboard, mouse, touch, responsive layouts and light/dark themes are acceptance requirements. Current component support must be verified on the target browsers.
 
+## Production-grade robustness
+
+Qube is a proof of concept, but every change is implemented as if it ships to production (owner, 2026-11-17, C51).
+A slice may be narrow in scope, never in quality.
+
+- **Validate at boundaries and fail loudly.** Requests, command arguments, files, provider answers and stored data are
+  checked where they enter; what does not hold is refused with an error that names what was wrong and where. No
+  silent fallback (above).
+- **Define the paths that are not the happy one**: errors, empty and boundary input, duplicates, concurrent edits,
+  timeouts, retries, cancellation and partial failure. A retry is bounded and safe to repeat.
+- **Keep data consistent**: what changes together commits in one transaction, a repeated request applies once, and an
+  accepted edit is never lost or applied to another revision.
+- **Stay fast at scale**: a counterparty has up to about 10,000 trades, about 100 at the median (owner, 2026-11-10),
+  and ADR-0003 measures at 10,000 and 50,000 rows. No interactive path loads every row where a page would do, or
+  grows quadratically; what is in doubt is measured and recorded in `IMPLEMENTATION_STATUS.md`.
+- **Log enough to diagnose**, through ADR-0014's logging: a failure is logged with the identifiers that find its
+  Run, workspace or request and the inputs that matter. A secret is never logged, nor a conversation's words
+  (ADR-0014 §5).
+- **Test the failure paths**, not only the happy path: refusal, provider failure, timeout, concurrent edits and
+  partial failure, wherever the change has them. They count among `tdd`'s critical paths.
+- **Say every shortcut.** Anything short of this is marked where it stands and named in the pull request, with what it
+  leaves out and what could go wrong, and is not merged without the owner's OK. A fallback still needs approval before
+  it is written (above). Production grade is how the code is written, not a claim: simulated stays labelled simulated.
+
 ## Decision handling
 
 `CONFIRMED` means a user requirement. `DEFAULT` is an implementation proposal that may be used without repeated clarification; record a reason before changing it. `OPEN` needs discovery when its affected slice is reached. Do useful unblocked work first. Do not turn every open item into an up-front questionnaire.
@@ -116,4 +140,4 @@ Single-context: `docs/adr/` and the numbered documents at the repository root. S
 
 ## Completion reporting
 
-For each slice report what runs, the exact verification performed, which providers are real versus simulated, the next concrete gap and any necessary user decision. Keep these facts in `IMPLEMENTATION_STATUS.md` once implementation begins.
+For each slice report what runs, the exact verification performed (the failure paths tested among it), which providers are real versus simulated, any shortcut the owner approved, the next concrete gap and any necessary user decision. Keep these facts in `IMPLEMENTATION_STATUS.md` once implementation begins.
