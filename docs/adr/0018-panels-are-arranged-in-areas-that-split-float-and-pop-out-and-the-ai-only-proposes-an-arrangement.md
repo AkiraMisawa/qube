@@ -199,8 +199,8 @@ These read the **panels' space**, the window less the AI pane while it is open.
 - **A panels' space too small for the arrangement** (its areas narrower than their minimum, as when the AI pane opens
   on a laptop beside three areas) shows the one strip, and the arrangement as it was when there is room again. Nothing
   is merged into fewer areas by itself: that would rearrange what the user arranged. Each change between the strip and
-  the areas draws the pages in view anew, and each page takes back the screen state its panel kept (ADR-0006 note 10,
-  since 2026-11-12).
+  the areas drew the pages in view anew, each page taking back the screen state its panel kept (ADR-0006 note 10, since
+  2026-11-12); since 2026-11-15 the page in view on both sides is moved, not drawn anew (the note below).
 - **A page lays itself out by its area's width, not the window's** (amends ADR-0010 §1 and docs/design-guidelines.md
   §9, above). The pricer's three sections, its full-height button, the trace view's narrow layout and every rule that
   reads `sm`, `md` or `lg` read the width of the panel they are in: a CSS container query, and for a hook the panel's
@@ -218,10 +218,56 @@ panels' space instead:
   the pane is open;
 - a floating area is allowed wherever areas are, where the owner was told from 1200px.
 
+**§5's note of 2026-11-15: the page in view is moved, not drawn anew, as the panels change between the strip and the
+areas** (CONFIRMED, the owner, 2026-11-15). A browser test typed in a toolbar's field, widened the window and found
+what it had typed gone: the strip became the areas and drew the page anew, as above. Asked whether what is typed and
+not committed should stay when the window crosses 768px (a tablet turned while typing), the owner chose that
+everything stays (「すべて残す」), over losing it as until then, and over keeping only the drafts of the toolbars' fields.
+
+- **The page of the active panel is the same page on both sides**, since it is the one in view in the strip and in the
+  areas alike: what the user typed and has not committed (a toolbar's field, a grid's Cell Editor), a dialog, a
+  notice, a busy state, the keyboard's place and a grid's scroll stay, and the change commits nothing.
+- **How** (DEFAULT). A page in the main window is drawn where the panels are and moved into the place that shows it,
+  the strip's page or an area's (`client/src/shell/pageHost.tsx`), by the browser's `moveBefore`, which keeps the
+  keyboard's place, a selection and each scroll, and neither blurs nor focuses anything. The strip is drawn in the same
+  step as the areas go; the areas come a moment after the strip goes, as dockview draws them once it is made, and the
+  page waits meanwhile out of sight, in a box of the kind and size of the place it left, its size as the browser last
+  reported it, so that its layout does not change while it waits (a grid laid out anew as tall as its rows would lose
+  its scroll). Chromium 153 keeps a scroll across one `moveBefore`, but was found to lose it across two with no layout
+  between (into the box and on into the strip in one step), so a page that waited is laid out in its box before it
+  moves on. It also scrolls the field the keyboard is in into view as it moves it (a grid's Cell Editor, into the
+  narrower strip, was scrolled to sideways, and stayed so back in the areas), so each scroll around that field is put
+  back after the move.
+- **What the width changes still changes**: a page lays itself out again by its new width (above), and a part it draws
+  at one width only (the pricer's three tabs under 768px) goes or comes as on any resize. The keyboard going into a
+  part of the pricer chooses that part's tab, at any width (DEFAULT), so a field of the inputs typed in at 1440px is
+  still in view, with the keyboard, at 390px: hidden, it would be left, and a field that commits as it is left would
+  commit.
+- **The AI pane too** (DEFAULT, as everything stays). It changes place at the same width, from beside the panels to a
+  drawer over them (ADR-0007 §7), and is moved, not drawn anew, with what was typed in it and not sent.
+- **The other pages are as before** (CONFIRMED, the owner, 2026-11-19; first a DEFAULT). Only the pages in view are
+  mounted (§6): a page in another area, which the strip does not show, goes as the strip is drawn, and a page that
+  comes into view in an area is drawn as a page shown again (ADR-0006 note 10). Keeping them would be keeping hidden
+  pages mounted, rejected below. A page in another window, which the strip closes (§9), is drawn anew in the main
+  window, as a grid reads the window it is created in. Asked whether the other areas' pages should be kept too, the
+  owner answered that what was only begun there need not stay (「編集しかけのやつなら全然残さなくていい」), the page in
+  view being another matter: what is lost there is only what was not committed, such as a Cell Editor left open, a
+  dialog or a scroll, while every committed edit is the server's (ADR-0003) and the panel's kept state (ADR-0006
+  note 10) comes back.
+- **What is the strip's or the areas' own goes with them**: a tab's menu or the list of all panels open at the change
+  closes, as the strip or the areas it belongs to go. A list or a menu of the page itself stays open beside its field.
+- **A browser without `moveBefore`** (DEFAULT; Chromium has it from 133, and layer 3 runs 153) moves the page by
+  appending it, which takes the keyboard off it and each scroll to 0. Both are read before the first move and put back
+  at the next place, and the keyboard's leaving and coming back are not let through to the page, so that a field that
+  commits as it is left does not commit. A composition the keyboard was in the middle of (an IME's) is not kept there.
+  Layer 3 runs the change both ways.
+
 ### 6. What is mounted
 
 Each area mounts the page of the panel it shows, and no other (note 7). The screen's cost grows with the areas in view,
-not with the panels open. A panel moved between areas, floated or popped out keeps its page mounted, as the spike saw.
+not with the panels open. A panel moved between areas, floated or popped out keeps its page mounted, as the spike saw. A page in
+the main window is drawn where the panels are and moved into its area (§5's note of 2026-11-15); while it waits
+between one place and the next it is still the one page in view.
 
 Step 1 measures three areas each showing an XVA page of 10,000 trades, at 1440px: the elements on the page, and how
 long choosing another tab of one area takes, beside the same with one area. It passes when the elements are the three

@@ -251,7 +251,9 @@ decided as recommended and reported.
       view.
     - *What is not.* What the user typed and has not committed, a dialog, a notice, a busy state, and the scroll of a
       page or a grid (the Focus placed is revealed). Nothing kept is an input to what is priced: the user's work is
-      the server's, and a page shown again reads it afresh (ADR-0003).
+      the server's, and a page shown again reads it afresh (ADR-0003). *(2026-11-15: the page in view as the panels
+      change between the strip and the areas is not shown again but moved, and keeps all of these, the owner's choice:
+      ADR-0018 §5's note of 2026-11-15. A page hidden and shown again is as written here.)*
     - *A grid's Selection comes back only onto the rows it was made among* (DEFAULT, the spine's first rule). A
       position means a row only in one order (ExGrid ADR-0011), and the rows may have moved while the panel was
       hidden: an edit, a live tick under a sort by a live figure, a Run added to the Pricing DB. So the Selection is

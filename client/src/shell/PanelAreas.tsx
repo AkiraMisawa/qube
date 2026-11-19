@@ -19,6 +19,7 @@ import { CLOSE, FLOAT, leavesNoneDocked, onNow } from './panelVerbs';
 import { PanelContent, PanelList, renameOnLine, TabMenu, useRunVerb, type MenuAt } from './panelMenus';
 import { lineIsOpen } from './CommandPalette';
 import { WindowPortals, WindowShell } from './WindowShell';
+import { PageInPlace, PageSlot } from './pageHost';
 import { addWindow, hearWindowsChange, useOtherWindows, usedWindow, windowInUse, windowKey, type OtherWindow } from './windows';
 import { isElement, isHTMLElement } from '../platform/elements';
 
@@ -64,12 +65,15 @@ function Page({ api, params }: IDockviewPanelProps<{ readonly panelId: string }>
   const win = useWindowOf(api);
   if (panel === undefined || !shown) return null;
   // The page of the tab its area shows. dockview's content holding it is the area's tab panel, named by that tab, as the
-  // strip's tab panel is: one more here would be a tab panel inside a tab panel. It is drawn anew in each window it is
-  // moved into, once dockview has moved it there: a grid reads the window it is created in (ADR-0018 §9, ExGrid's
-  // ADR-0090), and the page takes back the screen its panel kept (ADR-0006 note 10).
+  // strip's tab panel is: one more here would be a tab panel inside a tab panel. In the main window it is drawn where
+  // the panels are, and moved here (`pageHost`), so that it is not drawn anew as the panels become the strip or the
+  // areas. In another window it is drawn there, anew in each window it is moved into, once dockview has moved it there:
+  // a grid reads the window it is created in (ADR-0018 §9, ExGrid's ADR-0090), and the page takes back the screen its
+  // panel kept (ADR-0006 note 10).
+  if (win === window) return <PageSlot pageId={panel.id} className="qube-area-page" />;
   return (
     <div key={windowKey(win)} className="qube-area-page">
-      <WindowPortals win={win}><PanelContent panel={panel} /></WindowPortals>
+      <PageInPlace><WindowPortals win={win}><PanelContent panel={panel} /></WindowPortals></PageInPlace>
     </div>
   );
 }

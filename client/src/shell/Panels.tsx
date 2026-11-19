@@ -6,6 +6,9 @@ import { useWorkspace, useWorkspaceContext } from '../platform/workspace/Workspa
 import { stripReason } from './arrangement';
 import { useKeptLayout } from './keptPanels';
 import { fits, needs } from './layout';
+import { PageHost, pagePlaces, PagePlacesProvider, useCarried } from './pageHost';
+import { PanelContent } from './panelMenus';
+import { WindowPortals } from './WindowShell';
 import { PanelAreas } from './PanelAreas';
 import { PanelStrip } from './PanelStrip';
 import { ProposalPlan } from './ProposalPlan';
@@ -14,7 +17,8 @@ import { panelsContext, takeProposal } from './proposals';
 // The panels' space (ADR-0018 §5): the window less the header and the AI pane. From 768px wide, where the kept
 // arrangement fits, the panels stand in areas (`PanelAreas`); else they are note 7's one strip (`PanelStrip`), and the
 // arrangement waits for the room. The space is read as the browser reports it when it changes, never measured on the
-// way to a paint.
+// way to a paint. The pages of the main window are drawn here and moved into the place that shows them (`pageHost`),
+// so that the page in view on both sides of a change between the strip and the areas is not drawn anew.
 
 // The AI's proposal of an arrangement (ADR-0018 §8): numbered as it arrives, and drawn on its card as a plan with Apply.
 // It opens no panel and moves none.
@@ -40,12 +44,21 @@ export function Panels() {
   const room = { width, height };
   const measured = width > 0 && height > 0;
   const areas = measured && count > 0 && fits(kept, room);
+  const shows = count === 0 || !measured ? undefined : areas ? 'areas' : 'strip';
+  const active = useWorkspace((s) => s.activePanelId);
+  const [places] = useState(() => pagePlaces(document));
+  // The page in view on both sides of a change between the strip and the areas, the active panel's, is moved across it,
+  // not drawn anew (ADR-0018 §5's note of 2026-11-15).
+  const { carried, landed } = useCarried(shows, active);
   return (
     <div ref={ref} className="qube-panels" data-mode={areas ? 'areas' : 'strip'}>
       <div ref={below} className="qube-panels-room" aria-hidden />
-      {count === 0 ? <NothingOpen /> : !measured ? null : areas ? <PanelAreas room={room} /> : (
-        <PanelStrip room={room} why={stripReason(room, kept === undefined ? undefined : needs(kept))} />
-      )}
+      <PageHost places={places} carried={carried} landed={landed} page={mainWindowPage} />
+      <PagePlacesProvider value={places}>
+        {count === 0 ? <NothingOpen /> : !measured ? null : areas ? <PanelAreas room={room} /> : (
+          <PanelStrip room={room} why={stripReason(room, kept === undefined ? undefined : needs(kept))} />
+        )}
+      </PagePlacesProvider>
     </div>
   );
 }
@@ -74,6 +87,16 @@ function usePanelsWidth(): { readonly ref: RefObject<HTMLDivElement | null>; rea
     return () => observer.disconnect();
   }, []);
   return { ref, width };
+}
+
+/** A panel's page in the main window, drawn where the panels are and moved into the place that shows it. */
+const mainWindowPage = (panelId: string) => <MainWindowPage panelId={panelId} />;
+
+function MainWindowPage({ panelId }: { readonly panelId: string }) {
+  const panel = useWorkspace((s) => s.panels.find((p) => p.id === panelId));
+  // A panel closed while its page is carried has nothing to draw: the page goes once no place shows it.
+  if (panel === undefined) return null;
+  return <WindowPortals win={window}><PanelContent panel={panel} /></WindowPortals>;
 }
 
 function NothingOpen() {

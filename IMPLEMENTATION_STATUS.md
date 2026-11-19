@@ -4069,6 +4069,112 @@ Unchanged: every source and every measure is simulated, and every value is synth
 - **The toolbar's dialog lists what drops by kind**, and the line's reading by row and field, as before this change;
   the dialog was not changed.
 
+### The browser test's race on a resize (2026-11-14, after the merge)
+
+The dummy's browser test failed once in a full run: the toolbar's Project still read `Alpha bid` after it was cleared.
+The test widened the window and typed at once, while the panels were still the strip. The browser reports the width a
+moment later (a `ResizeObserver`, `Panels.tsx`), the panels become areas again and draw the page anew (ADR-0018 §5),
+and what was typed in the strip's field is not kept (ADR-0006 note 10). A probe saw the panels still `strip` right
+after the window was widened, and a draft typed at 1440px gone once the panels were the strip. The test now waits for
+the panels to be the strip after narrowing and the areas after widening, each before it reads or types. Nothing in the
+product changed then. Asked whether a field should keep what was typed across the change, the owner chose that
+everything stays (2026-11-15), which the next section builds.
+
+| Check | Result |
+|---|---|
+| `npx playwright test e2e/xva.spec.ts --grep "on the dummy under a project" --repeat-each=10` (Chromium, headless, Linux) | 10 passed |
+| The same, `--repeat-each=20`, with three busy processes on four cores (`sh -c 'while :; do :; done'`) | 20 passed |
+
+- **Open, not explained:** under that load the test before this change also failed now and then (5 of 112 runs, before the
+  resize waits and with them, none in the last 52) at the held reading of `counterparty XYZ/LE-03`: the reading was drawn
+  whole but the line still said `Reading the line…` after 5 seconds. No trace of a failing run was caught (none failed
+  with tracing on), so whether a reading was left unanswered or the line asked again is not known. It was never seen
+  without the added load.
+
+## The page in view stays as the panels change between the strip and the areas (ADR-0018 §5's note of 2026-11-15)
+
+Asked whether what is typed and not committed should stay when the window crosses 768px (a tablet turned while
+typing), the owner chose that everything stays (「すべて残す」), over losing it as ADR-0006 note 10 said and over keeping
+only the drafts of the toolbars' fields. ADR-0018 §5's note of 2026-11-15 records it, and ADR-0006 note 10's "What is
+not" points there.
+
+### What runs
+
+- A page in the main window is drawn where the panels are (`client/src/shell/pageHost.tsx`, from `Panels.tsx`) and
+  moved into the place that shows it: the strip's page (`.qube-strip-place`) or an area's (`.qube-area-page`). As the
+  panels change between the strip and the areas, the active panel's page, the one in view on both sides, is carried
+  across: the same page, with what was typed and not committed (a toolbar's field, a grid's Cell Editor), a dialog
+  open, a notice, a busy state, the keyboard's place and a grid's scroll. Nothing is committed by the change.
+- The move is the browser's `moveBefore`, which keeps the keyboard's place and each scroll and neither blurs nor
+  focuses. Without it (a browser older than Chromium 133), the page is appended: the scrolls and the keyboard's place
+  are read before and put back after, and the focus events the move makes are not let through to the page, so that a
+  field that commits as it is left does not commit.
+- The strip takes the page in the same step as the areas go. The areas take it a moment after the strip goes, once
+  dockview has drawn them: meanwhile the page waits out of sight in a box of the kind and size of the place it left,
+  its size as the browser last reported it, and the strip's room (`--qube-panel-room`) as the strip had it, so that its
+  layout does not change while it waits. A first build held it in a box of the panels' size laid out as an area: a
+  layout forced while it waited made the pricer's Existing grid as tall as its rows, and its scroll went to 0. Chromium
+  153 also loses a scroll across two `moveBefore` moves with no layout between (into the box and on into the strip in
+  one step), so a page that waited is laid out in its box before it moves on. And it scrolls the field the keyboard is
+  in into view as it moves it: the New grid with an edit open in its Notional was scrolled 373px sideways at 390px,
+  its heading under the frozen columns, and stayed so back at 1440px (seen in the pull request's pictures). Each scroll
+  around that field is put back after the move, so the grid stays as it was, its edit out of view at 390px as a grid
+  narrowed under an edit leaves it, with the grid's Go to selection.
+- A page is shown in the last place that asks for it, and goes back to the one before as that one lets go. Two ask at
+  once as dockview brings a panel back from another window (`dock panel`): the area it is drawn in, and the one that
+  drew it before, out of the document, which dockview shows again as the panel is next chosen in its area. A place out
+  of the document asks behind one in it, so the page is in view at once; a first build put it in the one out of the
+  document, and the area was empty. A place in another window gets no page from here.
+- The other pages are as before: only the pages in view are mounted, so a page in another area goes as the strip is
+  drawn, and one that comes into view in an area is drawn as a page shown again. A page in another window is drawn
+  there, and anew in the main window as the strip closes the windows.
+- The pricer under 768px shows one part. The keyboard going into a part now chooses that part's tab at any width, so a
+  field of the inputs typed in at 1440px (CVA recovery) stays in view and keeps the keyboard at 390px. Before, the
+  part stayed Trades, the field was hidden, the browser took the keyboard off it, and its draft was committed as an
+  edit (seen in a probe; the browser test fails without the change).
+- The AI pane changes place at the same width (the side, or a drawer below 768px) and is moved by the same host, so
+  what was typed in it and not sent stays, with the keyboard.
+- A place given up before the browser reported its size (two changes in one frame, or React's checks in development,
+  which give a place up as it comes) is read as it goes, so the page is never held in a box of no width, where it
+  would draw nothing. Each place's size is kept with the place it is of.
+- The cost of a place's going, which every tab change now pays (the page is held until the next render drops it):
+  on a pricer of 10,000 trades in Chromium, reading the place's room took 0.1ms and moving the page into its box 0.4
+  to 1.2ms (ten readings, a probe; the box is dropped before it is laid out).
+
+### Decisions made for the owner (DEFAULT, each easy to change)
+
+- Only the page in view on both sides is carried. The pages of the other areas are not kept while the strip shows
+  one page: that would be keeping hidden pages mounted, which ADR-0018 rejects (a hidden page took the keyboard).
+  The owner confirmed this on 2026-11-19: what was only begun in another area need not stay (ADR-0018 §5's note).
+- What the new width changes still changes: the pricer under 768px is three tabs, as on any resize.
+- A composition the keyboard was in the middle of (an IME's) is not kept where the browser has no `moveBefore`.
+- The keyboard going into a part of the pricer chooses that part's tab at any width (ADR-0010's note of 2026-11-15).
+- The AI pane is moved too, as the owner chose that everything stays.
+- A tab's menu or the list of all panels, open at the change, closes: it is the strip's or the areas', which go. A
+  list of the page itself (the Counterparty select) stays open under its field (looked at in a probe at 390px).
+
+### Shortcuts (C51), approved by the owner with the merge (2026-11-19, 「マージしていいよ」)
+
+- A browser without `moveBefore` moves the page by appending it, and an IME composition the keyboard was in the middle
+  of is not kept there (marked in `client/src/shell/pageHost.tsx`). The rest is put back.
+- That path was run only in Chromium with `moveBefore` taken away: the browser tests run Chromium alone, so Safari (an
+  iPad turned while typing) and Firefox were not tried.
+
+The paths that are not the happy one, tested in `pageHost.test.tsx`: a place in another window is refused the page; a
+page waiting for its place is dropped when another panel is shown before the place comes; a place that lets go gives
+the page back to the one before, and a detached place asks behind a connected one.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `cd client && npm run typecheck && npx vitest run`, with main's #54 merged in and every fix | Typecheck clean; 553 passed in 52 files |
+| `npx playwright test` (Chromium 153, headless, Linux, the built client served by the host), with main's #54 merged in and every fix | 157 passed |
+| The new browser test, by `moveBefore` and by append, `--repeat-each=3` | 6 passed |
+| The same test without the pricer's part following the keyboard | Failed, as it should: the CVA recovery field lost the keyboard at 390px |
+| The same test without the scrolls around the keyboard put back | Failed, as it should: the New grid at 373px sideways, not 0 |
+| `e2e/windows.spec.ts` and `e2e/areas.spec.ts`, after the fix for a panel docked back from another window | 23 passed |
+
 ## The Rates line grid shows rows to type in from the start (ADR-0015's note of 2026-11-14)
 
 The owner, asked what the line grid shows before it has lines: cells from the start, "five to ten blank rows, and

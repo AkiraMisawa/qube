@@ -425,17 +425,41 @@
   height: 100%;
   padding-inline: var(--app-shell-padding);
 }
-.qube-area-page > .qube-panel-page {
+.qube-area-page > .qube-page-host > .qube-panel-page {
   height: 100%;
   container: qube-panel / size;
   /* `100cqh` is resolved where the variable is read, against the nearest size container there: this page, as long as
      no size container stands between it and the part that reads its room. */
   --qube-panel-room: calc(100cqh - 2 * var(--app-shell-padding));
 }
-.qube-area-page > .qube-panel-page > .qube-panel-page-body {
+.qube-area-page > .qube-page-host > .qube-panel-page > .qube-panel-page-body {
   height: 100%;
   overflow: auto;
   padding-block: var(--app-shell-padding);
+}
+
+/* A page of the main window is drawn in an element of its own, which is moved into the place that shows it: the strip's
+   page or an area's (`pageHost.tsx`, ADR-0018 §5's note of 2026-11-15). The element draws no box of its own, so a page
+   is laid out as if it stood in its place. Between one place and the next a page is held out of sight, in a box of the
+   kind and the size of the place it left (`.qube-area-page` or `.qube-strip-place`), so that its layout does not change
+   while it waits; nothing scrolls the document to it. */
+.qube-page-host {
+  display: contents;
+}
+.qube-page-holds {
+  position: fixed;
+  top: 0;
+  /* Past the left of any screen, so that nothing held is in view or takes a press. */
+  left: -100000px;
+  pointer-events: none;
+}
+/* The AI pane's place, the shell's side or its drawer (`App.tsx`), which the pane fills. */
+.qube-ai-place {
+  height: 100%;
+}
+.qube-page-holds > * {
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 /* The list at the end of an area's strip stands on its line, as the strip's does. */
@@ -493,7 +517,7 @@
 
 /* A panel's page is a size container (ADR-0018 §5): its stylesheets' container queries read the panel's width, not the
    window's. In the strip, its width only: a page there is as high as its content. In an area, its size, so that a page
-   reads the area's height too (`.qube-area-page > .qube-panel-page`, above). The container reaches across the shell's
+   reads the area's height too (`.qube-area-page > .qube-page-host > .qube-panel-page`, above). The container reaches across the shell's
    gutter, which the strip and an area each give their page, so that it is the panel's whole width, as the window was;
    the page is drawn inside the gutter again. A query on it is written in pixels, in the range syntax
    (`width >= 768px` for the theme's `sm`, `width < 768px` below it): a container query's `em` is the container's font
@@ -510,7 +534,9 @@
    page (`.qube-strip-page`) and the shell's below it, as the page had before there were areas; a page taller than that
    scrolls the document. In an area it is the area's height less the gutter above and below the page (the area's page
    is a size container there), and a page taller than that scrolls inside its area. */
-.qube-panels[data-mode='strip'] .qube-panel-page {
+/* Set on the strip's place, which a page held after it is given as it stands (`pageHost.tsx`): the strip's tabs it reads
+   are gone by then. */
+.qube-strip-place {
   --qube-panel-room: calc(100dvh - var(--app-shell-header-offset) - 3 * var(--app-shell-padding)
     - var(--qube-panel-tab-height) - var(--tabs-list-border-width));
 }
