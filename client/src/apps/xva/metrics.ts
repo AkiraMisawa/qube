@@ -5,8 +5,8 @@ import type { RegisteredMeasure, SignWords } from './contracts';
 // and Diff. The figures come from the Run's retained results, never from the screen, and where there is no figure the
 // cell says why in words: `not priced` (nothing failed, the side had no trade), `unavailable` (a request failed),
 // `refused` (Price blocked the measure, with its reason). Never 0 for any of them. A metric its measure registers as
-// shown by its Diff alone, as CVA's CVA Charge, is one column of the dock, each figure said by its sign a charge or a
-// rebate; the Run still holds both of its sides (§7's note of 2026-11-21).
+// shown by its Diff alone, as CVA's CVA Charge, is one column of the dock, headed in two tiers by the word its figures'
+// sign says (`headingOf`) and holding figures alone; the Run still holds both of its sides (§7's note of 2026-11-21).
 
 export type CellStatus = 'priced' | 'notPriced' | 'unavailable' | 'refused' | 'pending';
 
@@ -48,7 +48,7 @@ export interface MetricLine {
   readonly term: string | undefined;
   /** Whether the dock shows the metric by its Diff alone, as its registration says (ADR-0010 §7's note of 2026-11-21). */
   readonly diffOnly: boolean;
-  /** The words that one column says beside a figure by its sign, where the registration gives them: `Charge`, `Rebate`. */
+  /** The words that one column's heading says by its figures' sign, where the registration gives them: `Charge`, `Rebate`. */
   readonly signWords: SignWords | undefined;
 }
 
@@ -199,20 +199,23 @@ export interface MetricsGrid {
 
 /**
  * A measure metric's column group, with the sides it draws: those the table draws (§7), or for a metric shown by its Diff
- * alone its one column, headed by its title with no side (§7's note of 2026-11-21), which names a side in its cell where
- * a case has no Diff, the table's other sides included.
+ * alone its one column, with no side under it, headed by its heading (§7's note of 2026-11-21).
  */
 export interface MetricsColumn {
   readonly key: string;
   readonly measureTitle: string;
   readonly metricTitle: string;
   readonly sides: readonly ResultSide[];
-  readonly diffOnly: boolean;
+  /** A Diff-only column's heading, a line a tier (`headingOf`): `CVA` over `Charge`; none for a column group. */
+  readonly heading: readonly string[] | undefined;
+  /** The sign its heading's word names, where its metric registers sign words: a figure of the other sign says its own. */
+  readonly headed: Sign | undefined;
 }
 
-/** What names a column's cell, for its header and a screen reader: its title and side, or a Diff-only metric's title. */
+/** What names a column's cell, for its header and a screen reader: its title and side, or a Diff-only column's heading
+ * (`CVA Charge`, `CVA Rebate`). */
 export const columnLabel = (column: MetricsColumn, side: ResultSide): string =>
-  column.diffOnly ? column.metricTitle : `${column.metricTitle} ${SIDE_TITLES[side]}`;
+  column.heading === undefined ? `${column.metricTitle} ${SIDE_TITLES[side]}` : column.heading.join(' ');
 
 const columnKey = (line: MetricLine) => `${line.measure}.${line.metric}`;
 
@@ -225,6 +228,24 @@ function drawnSides(table: MetricsTable): readonly ResultSide[] {
   ];
 }
 
+/**
+ * The one place the heading of a Diff-only column is decided (ADR-0010 §7's note of 2026-11-21, the owner's third and
+ * fourth answers). A metric with no sign words is headed by its title. One with them is headed in two tiers, its
+ * measure's title over a word: the word above zero where every figure the column shows with a sign is above zero
+ * (`CVA` over `Rebate`), else the word below zero, the one the metric is named by (`CVA` over `Charge`), as when no
+ * figure has a sign yet. A figure shown as 0 has no sign, and a Before alone is a level the case takes away, not what it
+ * adds (`addedOf`), so neither has a say. Where the figures differ, each one of the sign the heading does not name says
+ * its own word beside it (`shownCell`), so no figure stands under a word that is not its own.
+ */
+function headingOf(line: MetricLine, lines: readonly MetricLine[]): Pick<MetricsColumn, 'heading' | 'headed'> {
+  if (line.signWords === undefined) return { heading: [line.metricTitle], headed: undefined };
+  const signs = lines.filter((l) => columnKey(l) === columnKey(line))
+    .flatMap((l) => { const added = addedOf(l); return added === undefined ? [] : [signOf(added)]; })
+    .filter((s) => s !== undefined);
+  const headed: Sign = signs.length > 0 && signs.every((s) => s === 'above') ? 'above' : 'below';
+  return { heading: [line.measureTitle, line.signWords[headed]], headed };
+}
+
 /** The dock's grid: a row per case, a column group per measure metric. */
 export function metricsGrid(table: MetricsTable): MetricsGrid {
   const drawn = drawnSides(table);
@@ -232,7 +253,8 @@ export function metricsGrid(table: MetricsTable): MetricsGrid {
   for (const line of table.lines)
     if (!columns.has(columnKey(line))) columns.set(columnKey(line), {
       key: columnKey(line), measureTitle: line.measureTitle, metricTitle: line.metricTitle,
-      sides: line.diffOnly ? ['diff'] : drawn, diffOnly: line.diffOnly,
+      sides: line.diffOnly ? ['diff'] : drawn,
+      ...(line.diffOnly ? headingOf(line, table.lines) : { heading: undefined, headed: undefined }),
     });
   const cases = new Map<string, string>();
   for (const line of table.lines) if (line.case !== undefined && !cases.has(line.case)) cases.set(line.case, line.caseTitle ?? line.case);
@@ -261,35 +283,48 @@ export function caseAdds(line: MetricLine): { readonly side: ResultSide | undefi
   return { side: undefined, cell: [line.diff, line.after, line.before].find((c) => c.status !== 'priced' && c.status !== 'notPriced') ?? NOT_PRICED };
 }
 
+/** A figure's sign as shown, and so the key of its word among a metric's sign words. */
+type Sign = keyof SignWords;
+
 /**
- * The word a figure's sign says, as its registration names them (ADR-0010 §7's note of 2026-11-21): the word below zero
- * where the figure shows a minus sign, the word above where it shows a figure other than 0, none for 0 or a cell with no
- * figure. It reads the figure as shown, its text and the loss mark `isLoss` gave it, never the value behind it, so the
- * word never disagrees with what the cell says.
+ * A figure's sign as shown (ADR-0010 §7's note of 2026-11-21): below zero where it shows a minus sign, above where it
+ * shows a figure other than 0, none for 0 or a cell with no figure. It reads the figure as shown, its text and the loss
+ * mark `isLoss` gave it, never the value behind it, so no word said by it disagrees with the figure.
  */
-function signWord(cell: MetricCell, words: SignWords | undefined): string | undefined {
-  if (words === undefined || cell.status !== 'priced') return undefined;
-  if (cell.negative === true) return words.below;
-  return cell.text === formatAmount(0) ? undefined : words.above;
+function signOf(cell: MetricCell): Sign | undefined {
+  if (cell.status !== 'priced') return undefined;
+  if (cell.negative === true) return 'below';
+  return cell.text === formatAmount(0) ? undefined : 'above';
+}
+
+/**
+ * What a case adds of a metric shown by its Diff alone, as its one column shows it: `caseAdds`, the Diff, or an After
+ * where Before held nothing, which is all the case adds, or the word for why there is no figure. None for a Before
+ * alone: a level the case takes away, never what it adds (ADR-0010 §7's note of 2026-11-21).
+ */
+function addedOf(line: MetricLine): MetricCell | undefined {
+  const added = caseAdds(line);
+  return added.side === 'before' ? undefined : added.cell;
 }
 
 /**
  * What a column of a metric's group shows of a line: the side as the line holds it, or, in the one column of a metric
- * shown by its Diff alone, what the case adds (ADR-0010 §7's note of 2026-11-21). Its side is named where that is not
- * the Diff, as the collapsed line names it. Where the metric registers sign words, the figure is said by its sign
- * (`Charge`, `Rebate`) wherever it is what the case adds: the Diff, or an After where Before held nothing
- * (`Charge (After)`). A Before alone is a level the case takes away, never what it adds, so it is named and not said
- * a charge or a rebate (`Before`).
+ * shown by its Diff alone, what the case adds, the figure alone under the column's heading (ADR-0010 §7's note of
+ * 2026-11-21, the owner's fourth answer). A figure of the sign the heading's word does not name says its own word beside
+ * it, as a rebate under `Charge` among cases that differ (`Rebate 25`), so none stands under a word that is not its own.
+ * A Before alone is named (`Before`), never read as a charge or a rebate.
  */
-export function shownCell(line: MetricLine, side: ResultSide): MetricCell {
+export function shownCell(line: MetricLine, side: ResultSide, column: MetricsColumn): MetricCell {
   if (side !== 'diff' || !line.diffOnly) return line[side];
-  const added = caseAdds(line);
-  const word = added.side === 'before' ? undefined : signWord(added.cell, line.signWords);
-  const named = added.side === 'before' || added.side === 'after' ? SIDE_TITLES[added.side] : undefined;
-  const said = word !== undefined && named !== undefined ? `${word} (${named})` : word ?? named;
-  if (said === undefined) return added.cell;
-  return { ...added.cell, note: added.cell.note === undefined ? said : `${said} ${added.cell.note}` };
+  const added = addedOf(line);
+  if (added === undefined) return noted(caseAdds(line).cell, SIDE_TITLES.before);
+  const sign = signOf(added);
+  if (line.signWords === undefined || sign === undefined || sign === column.headed) return added;
+  return noted(added, line.signWords[sign]);
 }
+
+/** A cell with a word said before its figure, ahead of any note it has. */
+const noted = (cell: MetricCell, word: string): MetricCell => ({ ...cell, note: cell.note === undefined ? word : `${word} ${cell.note}` });
 
 /**
  * The collapsed dock (ADR-0010 §7): one line per case, each priced measure's headline metric as its Diff, or the priced

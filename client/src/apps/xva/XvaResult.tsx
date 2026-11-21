@@ -10,8 +10,8 @@ import { conversionOf, dockTabs, METRICS_TAB, unpricedReasons, type MeasureTab }
 import { BASE_MARKET, columnLabel, headlines, inMarket, marketsOf, metricsGrid, metricsTable, pricedMeasures, reasons, shownCell, SIDE_TITLES, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
 
 // The latest Price's Metrics, on the workspace page itself (ADR-0010 §7): a row per case, per priced measure Before,
-// After and Diff, or the Diff alone under its title for a metric registered so, as CVA Charge, each figure said a
-// charge or a rebate by its sign (§7's note of 2026-11-21). They are read from the Run's retained results, never recomputed here, and say what they are:
+// After and Diff, or the Diff alone for a metric registered so, as CVA Charge, headed in two tiers by the word its
+// figures' sign says (§7's note of 2026-11-21). They are read from the Run's retained results, never recomputed here, and say what they are:
 // simulated, of which revision, and whether the workspace has moved on since. Each module's figures show as its
 // request answers, and a failed request leaves only its own measures unavailable (§10). Collapsed, the dock is its
 // header and one line a case with each measure's headline Diff (§7). A Run that priced scenarios shows one market at a
@@ -197,13 +197,15 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th rowSpan={2}>Case</Table.Th>
-                    {/* A metric shown by its Diff alone is headed by its title in both rows, naming no side (§7's note of 2026-11-21). */}
-                    {grid.columns.map((c) => (c.diffOnly
-                      ? <Table.Th key={c.key} rowSpan={2} className="qube-number" aria-label={columnLabel(c, 'diff')} data-testid="xva-result-heading">{c.metricTitle}</Table.Th>
-                      : <Table.Th key={c.key} colSpan={c.sides.length} className="qube-xva-result-group">{c.metricTitle}</Table.Th>))}
+                    {/* A metric shown by its Diff alone is headed in both rows, a line a tier, naming no side (§7's note of 2026-11-21). */}
+                    {grid.columns.map((c) => (c.heading === undefined
+                      ? <Table.Th key={c.key} colSpan={c.sides.length} className="qube-xva-result-group">{c.metricTitle}</Table.Th>
+                      : <Table.Th key={c.key} rowSpan={2} className="qube-number" aria-label={columnLabel(c, 'diff')} data-testid="xva-result-heading">
+                        {c.heading.map((l, i) => <span key={i} className="qube-xva-result-heading-line">{l}</span>)}
+                      </Table.Th>))}
                   </Table.Tr>
                   <Table.Tr>
-                    {grid.columns.filter((c) => !c.diffOnly).flatMap((c) => c.sides.map((side) => (
+                    {grid.columns.filter((c) => c.heading === undefined).flatMap((c) => c.sides.map((side) => (
                       <Table.Th key={`${c.key}.${side}`} className="qube-number" aria-label={columnLabel(c, side)}>{SIDE_TITLES[side]}</Table.Th>
                     )))}
                   </Table.Tr>
@@ -218,7 +220,7 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
                         // (ADR-0010 §7); a line of no case is one whose module gave no rows, and has no trace to open.
                         const caseId = line?.case;
                         const traced = status !== 'running' && caseId !== undefined && register.find((m) => m.id === line!.measure)?.traced === true;
-                        const cell = line === undefined ? undefined : shownCell(line, side);
+                        const cell = line === undefined ? undefined : shownCell(line, side, c);
                         return <Figure key={`${c.key}.${side}`} cell={cell} line={line} label={columnLabel(c, side)}
                           {...(traced ? { onTrace: () => onTrace(line!.measure, caseId, market.key, line!.term) } : {})} />;
                       }))}
@@ -239,9 +241,8 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
 
 /**
  * One figure, or the word for why there is none; a blank where no Diff exists, never 0. A figure of a measure that
- * keeps a trace is a link to it: why there is a figure, or why there is none, is the trace's to say. A note, such as
- * spot IM's governing regime or the word CVA Charge's sign says, stands before the figure, so that the figures stay
- * aligned on their right edge.
+ * keeps a trace is a link to it: why there is a figure, or why there is none, is the trace's to say. A side's note, such
+ * as spot IM's governing regime, stands before the figure, so that the figures stay aligned on their right edge.
  */
 function Figure({ cell, line, label, onTrace }: {
   readonly cell: MetricCell | undefined; readonly line: MetricLine | undefined; readonly label: string; readonly onTrace?: () => void;

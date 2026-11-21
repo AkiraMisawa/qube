@@ -37,11 +37,14 @@ async function placeOf(locator: Locator): Promise<{ x: number; y: number; width:
 /** What the open line says of its chain (ADR-0016 §9, note 24): the last it draws, a line that ran as `› <line>` and a notice as its sentence. */
 const saidIn = (page: Page) => page.getByTestId('command-said').locator('[data-kind]');
 /**
- * A CVA Charge cell as it reads, its word beside its figure (ADR-0010 §7's note of 2026-11-21): `Charge` with a minus
- * sign, `Rebate` with none, and a 0 neither; where the case has no Diff, After is named after the word, and a Before,
- * which the case takes away, is named alone.
+ * CVA Charge's one Metrics column where every case adds CVA cost (ADR-0010 §7's note of 2026-11-21): headed `CVA` over
+ * `Charge`, and each case's figure alone, below zero, with no word beside it.
  */
-const SAID_BY_SIGN = /^(Charge( \(After\))?-[1-9][\d,]*|Rebate( \(After\))?[1-9][\d,]*|After0|0|Before-?[\d,]+)$/;
+async function expectCharges(metrics: Locator): Promise<void> {
+  await expect(metrics.getByTestId('xva-result-heading').locator('span')).toHaveText(['CVA', 'Charge']);
+  const column = await metricsColumn(metrics, 'CVA Charge');
+  for (const row of await metrics.locator('tbody tr').all()) await expect(row.locator('td').nth(column)).toHaveText(/^-[1-9][\d,]*$/);
+}
 
 test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves its curve, and Price lands in the Pricing DB', async ({ page }) => {
   await open(page);
@@ -76,13 +79,11 @@ test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves it
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   // No existing trade: Before has nothing to price, so the dock draws After alone and says so once (ADR-0010 §7).
   await expect(result.getByTestId('xva-result-note')).toHaveText('After only: Before was not priced');
-  // CVA Charge's one column is headed by its title alone, so its cell names the side it has beside the word its sign
-  // says (ADR-0010 §7's note of 2026-11-21).
+  // CVA Charge's one column shows the After alone, all a case adds where Before held nothing: the figure, no word
+  // (ADR-0010 §7's note of 2026-11-21).
   const metrics = result.getByRole('table', { name: 'Metrics' });
-  const charge = await metricsColumn(metrics, 'CVA Charge');
-  const baseCharge = metrics.getByRole('row', { name: /^Base / }).locator('td').nth(charge);
-  await expect(baseCharge.getByTestId('xva-result-cell-note')).toHaveText(/^(Charge|Rebate) \(After\)$/);
-  await expect(baseCharge).toHaveText(SAID_BY_SIGN);
+  await expectCharges(metrics);
+  await expect(metrics.getByTestId('xva-result-cell-note')).toHaveCount(0);
   await expect(result.getByRole('columnheader', { name: 'CVA After' })).toBeVisible();
   await expect(result.getByRole('columnheader', { name: 'CVA Before' })).toHaveCount(0);
   await expect(result.getByTestId('xva-result-revision')).toHaveText(/^revision \d+$/);
@@ -603,13 +604,11 @@ test('ADR-0010 §3, §9, ADR-0016 note 28: `vary` says the cases it would make, 
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   const metrics = result.getByRole('table', { name: 'Metrics' });
   await expect(metrics.getByRole('rowheader')).toHaveText(['Base', 'CSA-A threshold 200mm', 'CSA-A threshold 50mm']);
-  // CVA Charge is what a case adds, so it is one column, headed by its title with no Diff under it, while CVA keeps its
-  // three; each case's figure there is said a charge or a rebate by its sign (ADR-0010 §7's note of 2026-11-21).
-  await expect(metrics.getByRole('columnheader', { name: /^CVA Charge/ })).toHaveCount(1);
-  await expect(metrics.getByTestId('xva-result-heading')).toHaveText('CVA Charge');
+  // CVA Charge is what a case adds, so it is one column, headed `CVA` over `Charge` with no Diff under it, while CVA
+  // keeps its three; each case's figure there stands alone (ADR-0010 §7's note of 2026-11-21).
+  await expect(metrics.getByRole('columnheader', { name: /^CVA (Charge|Rebate)$/ })).toHaveCount(1);
   await expect(metrics.getByRole('columnheader', { name: /^CVA (Before|After|Diff)$/ })).toHaveText(['Before', 'After', 'Diff']);
-  const charge = await metricsColumn(metrics, 'CVA Charge');
-  for (const row of await metrics.locator('tbody tr').all()) await expect(row.locator('td').nth(charge)).toHaveText(SAID_BY_SIGN);
+  await expectCharges(metrics);
   // Collapsed, the dock keeps a line per case with each measure's headline Diff (ADR-0010 §7).
   await result.getByRole('button', { name: 'Collapse' }).click();
   await expect(result.getByTestId('xva-result-lines').locator('p')).toHaveText([/^Base · CVA Diff /, /^CSA-A threshold 200mm · CVA Diff /, /^CSA-A threshold 50mm · CVA Diff /]);

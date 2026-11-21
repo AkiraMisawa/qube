@@ -354,7 +354,7 @@ export interface ScenarioView {
 
 /** One figure a measure reports, such as CVA's CVA Charge, the trace term its cell opens where it is not the root
  * (ADR-0010 §7's note of 2026-11-08: spot IM's IM-R opens at `collect`), and whether the dock shows it by its Diff alone,
- * as CVA Charge, with the words that one column says beside a figure by its sign (§7's note of 2026-11-21). */
+ * as CVA Charge, with the words that one column's heading says by its figures' sign (§7's note of 2026-11-21). */
 export interface MetricDefinition {
   readonly id: string;
   readonly title: string;
@@ -363,8 +363,9 @@ export interface MetricDefinition {
   readonly signWords?: SignWords | null;
 }
 
-/** The words said beside a figure by its sign as shown, as CVA Charge's `Charge` below zero and `Rebate` above; a figure
- * shown as 0 has neither. The server refuses a blank one, or sign words on a metric not shown by its Diff alone. */
+/** The words a Diff-only column's heading says under its measure's title by its figures' sign as shown: CVA Charge's
+ * `Rebate` where every figure with a sign is above zero, else `Charge`. The server refuses a blank one, or sign words on
+ * a metric not shown by its Diff alone. */
 export interface SignWords {
   readonly below: string;
   readonly above: string;
