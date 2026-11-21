@@ -4355,14 +4355,15 @@ The owner: CVA Charge needs one column; of Before, After and Diff, Diff is enoug
   draws, `After`, as before (DEFAULT).
 - A case with no Diff among cases that have one shows in that column what the collapsed line shows for it: the priced
   side, named beside the figure (`After -188`), or `refused`, `unavailable` or `…`; never a blank or 0 (DEFAULT). The
-  collapsed line now reads the same function (`incremental`), so the two cannot drift.
+  collapsed line now reads the same function (`caseAdds`), so the two cannot drift; Copy quote holds the same rule
+  on the server.
 
 ### Verification performed
 
 | Check | Result |
 |---|---|
-| `nix develop -c dotnet test server/Qube.slnx` | RESULT_SERVER |
-| `cd client && npm run typecheck && npm test` | RESULT_CLIENT |
+| `nix develop -c dotnet test server/Qube.slnx` | 1723 passed |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 561 passed in 52 files |
 | `cd client && npx playwright test e2e/xva.spec.ts` (Chromium, the built client served by the host), the four tests that read the Metrics' columns, `--repeat-each=3` | 12 passed |
 
 The new unit tests failed with the one column taken away (the grid's sides, and the cell of a one-sided case), and

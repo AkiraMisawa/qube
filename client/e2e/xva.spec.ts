@@ -595,6 +595,7 @@ test('ADR-0010 §3, §9, ADR-0016 note 28: `vary` says the cases it would make, 
   await expect(metrics.getByRole('columnheader', { name: /^CVA Charge / })).toHaveText(['Diff']);
   await expect(metrics.getByRole('columnheader', { name: /^CVA (Before|After|Diff)$/ })).toHaveText(['Before', 'After', 'Diff']);
   const charge = await metrics.locator('thead tr').nth(1).locator('th').evaluateAll((ths) => ths.findIndex((t) => t.getAttribute('aria-label') === 'CVA Charge Diff'));
+  expect(charge).toBeGreaterThanOrEqual(0);
   for (const row of await metrics.locator('tbody tr').all()) await expect(row.locator('td').nth(charge)).toHaveText(/^-?[\d,]+$/);
   // Collapsed, the dock keeps a line per case with each measure's headline Diff (ADR-0010 §7).
   await result.getByRole('button', { name: 'Collapse' }).click();

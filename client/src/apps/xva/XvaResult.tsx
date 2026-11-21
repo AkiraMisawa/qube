@@ -7,14 +7,15 @@ import { partHeight } from './layout';
 import { useDatasets, useRun } from '../../platform/workspace/WorkspaceProvider';
 import type { RegisteredMeasure } from './contracts';
 import { conversionOf, dockTabs, METRICS_TAB, unpricedReasons, type MeasureTab } from './dock';
-import { BASE_MARKET, cellOf, headlines, inMarket, marketsOf, metricsGrid, metricsTable, pricedMeasures, reasons, SIDE_TITLES, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
+import { BASE_MARKET, headlines, inMarket, marketsOf, metricsGrid, metricsTable, pricedMeasures, reasons, shownCell, SIDE_TITLES, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
 
 // The latest Price's Metrics, on the workspace page itself (ADR-0010 §7): a row per case, per priced measure Before,
-// After and Diff, or the Diff alone for a metric registered so, as CVA Charge (§7's note of 2026-11-21). They are read from the Run's retained results, never recomputed here, and say what they are:
-// simulated, of which revision, and whether the workspace has moved on since. Each module's figures show as its
-// request answers, and a failed request leaves only its own measures unavailable (§10). Collapsed, the dock is its
-// header and one line a case with each measure's headline Diff (§7). A Run that priced scenarios shows one market at a
-// time, the base market first, chosen with the scenario selector; the Metrics, the line and the tabs follow it (§4).
+// After and Diff, or the Diff alone for a metric registered so, as CVA Charge (§7's note of 2026-11-21). They are read
+// from the Run's retained results, never recomputed here, and say what they are: simulated, of which revision, and
+// whether the workspace has moved on since. Each module's figures show as its request answers, and a failed request
+// leaves only its own measures unavailable (§10). Collapsed, the dock is its header and one line a case with each
+// measure's headline Diff (§7). A Run that priced scenarios shows one market at a time, the base market first, chosen
+// with the scenario selector; the Metrics, the line and the tabs follow it (§4).
 
 export function XvaResult({ runId, pricedRevision, revision, register, selected, onOpen, onCopyQuote, onTrace, open, onOpenChange, height, tab, onTab, full, onFull, traceCase, onTraceCase, scenario, onScenario, renderTab }: {
   readonly runId: string;
@@ -215,7 +216,8 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
                         // (ADR-0010 §7); a line of no case is one whose module gave no rows, and has no trace to open.
                         const caseId = line?.case;
                         const traced = status !== 'running' && caseId !== undefined && register.find((m) => m.id === line!.measure)?.traced === true;
-                        return <Figure key={`${c.key}.${side}`} cell={line === undefined ? undefined : cellOf(line, side)} line={line} label={`${c.metricTitle} ${title}`}
+                        const cell = line === undefined ? undefined : shownCell(line, side);
+                        return <Figure key={`${c.key}.${side}`} cell={cell} line={line} label={`${c.metricTitle} ${title}`}
                           {...(traced ? { onTrace: () => onTrace(line!.measure, caseId, market.key, line!.term) } : {})} />;
                       }))}
                     </Table.Tr>
