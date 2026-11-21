@@ -411,6 +411,11 @@ export interface XvaWorkspaceView {
   readonly inputs: readonly MeasureInput[];
   /** How many of those cells on the new trades still wait for a result: the page asks again while any does. */
   readonly pendingCells: number;
+  /**
+   * What Price waits on, as the server says it: a cell still being calculated on a new trade in Before or After, such
+   * as a PV01 the engine has not answered (ADR-0010 §6's note of 2026-11-21). Absent when Price waits on nothing.
+   */
+  readonly priceWaits?: string;
   /** The currency the figures are shown in, and those it may be (ADR-0010 §1). */
   readonly displayCurrency: string;
   /**

@@ -32,7 +32,8 @@ public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int 
 /// <summary>What the workspace panel shows beside the grid. <c>Overrides</c> counts the edits to the portfolio's data,
 /// a leg made under a trade among them (ADR-0016 note 49); the selection of measures is the page's choice, shown on its own. <c>TradeColumns</c> are the selected modules'
 /// (ADR-0010 §10), as are the shared tabs' <c>Inputs</c> they need, and <c>PendingCells</c> counts their cells on the new trades still waiting for a result, so the page
-/// asks again while any is. <c>DisplayCurrency</c> is the workspace's setting, <c>DisplayCurrencyFrom</c> where it came
+/// asks again while any is; <c>PriceWaits</c> says the one Price waits on, a cell still being calculated on a new trade in
+/// Before or After, as Price would refuse it, or none (ADR-0010 §6's note of 2026-11-21). <c>DisplayCurrency</c> is the workspace's setting, <c>DisplayCurrencyFrom</c> where it came
 /// from (<c>settings</c>, <c>workspace</c> or <c>profile</c>, ADR-0017 §3), <c>Project</c> the project its Runs are listed
 /// under, or none (ADR-0010 §1's note of 2026-11-14), and <c>Simulated</c> names the modules whose
 /// figures come from a simulated provider, which the page says (ADR-0010 §1). <c>Packages</c> are those the trades'
@@ -59,6 +60,7 @@ public sealed record PortfolioWorkspaceView(
     IReadOnlyList<RegisteredColumn> TradeColumns,
     IReadOnlyList<MeasureInput> Inputs,
     int PendingCells,
+    string? PriceWaits,
     string DisplayCurrency,
     string DisplayCurrencyFrom,
     string? Project,
@@ -151,8 +153,13 @@ public sealed record ScenarioPlan(CommandPlan Command, IReadOnlyList<string> Mad
 /// <summary>A selection of measures as planned: the measures Price would price, in register order, by id and by title.</summary>
 public sealed record MeasuresPlan(CommandPlan Command, IReadOnlyList<string> Ids, IReadOnlyList<string> Titles);
 
-/// <summary>The portfolio's configuration: how many cases one Price prices, the Base among them (ADR-0010 §3's note).</summary>
-public sealed record PortfolioOptions(int CaseCap = PortfolioCases.DefaultCap);
+/// <summary>The portfolio's configuration: how many cases one Price prices, the Base among them (ADR-0010 §3's note), and
+/// how long Price waits for a cell still being calculated before it refuses (ADR-0010 §6's note of 2026-11-21, DEFAULT).</summary>
+public sealed record PortfolioOptions(int CaseCap = PortfolioCases.DefaultCap, int CellWaitMilliseconds = PortfolioOptions.DefaultCellWaitMilliseconds)
+{
+    /// <summary>Ten seconds: twenty-five times what the simulated PV01 engine takes, and still a wait a user sits through.</summary>
+    public const int DefaultCellWaitMilliseconds = 10_000;
+}
 
 /// <summary>A Run this workspace submitted (its latest twenty, newest first).</summary>
 public sealed record RunLink(string RunId, long Revision);
@@ -173,6 +180,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     PortfolioOptions? options = null, SavedItems? saved = null)
 {
     readonly int caseCap = (options ?? new PortfolioOptions()).CaseCap;
+    readonly TimeSpan cellWait = TimeSpan.FromMilliseconds((options ?? new PortfolioOptions()).CellWaitMilliseconds);
     readonly PortfolioChecks checks = new(register);
 
     // The pricer's tables as the kernel reads them, for a page read under a grid's conditions (ADR-0016 note 41 of step 4).
@@ -254,6 +262,8 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         // The workspace shows the Base; the cases' changes are the Changes tab's (ADR-0010 §3's note of 2026-11-08).
         var state = PortfolioCases.Base(raw);
         var source = Source(state);
+        // The new trades with their modules' cells, read once for what is still being calculated.
+        var pending = register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]);
         var links = runs.List(new RunQuery(user, 0, 20, workspaceId)).Runs
             .Select(r => new RunLink(r.RunId, r.Relations.WorkspaceRevision ?? throw new InvalidOperationException($"Run {r.RunId} names a workspace but no revision.")))
             .ToList();
@@ -264,7 +274,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             [.. raw.Lost.Values.OrderBy(l => l.Override.Seq).Select(l => new HeldEdit(l.Override.Target.Scope, l.Override.Target.Entity, l.Override.Target.Field, l.Override.Value, null, l.Acknowledged, CaseIdOf(l.Override.Target)))],
             links, register.Measures, PortfolioMaterialiser.SelectedMeasures(state, register),
             [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
-            register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
+            pending.Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
+            // What Price would wait on in the Base, read from the same cells (Price reads each case's own).
+            register.Waiting([.. pending.Where(t => t.Before || t.After)]) is { } waits ? $"{waits} Price waits for the calculation to finish." : null,
             PortfolioMaterialiser.DisplayCurrency(state), PortfolioMaterialiser.DisplayCurrencyFrom(state), PortfolioMaterialiser.Project(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
             PortfolioCases.All(raw), DataEdits(raw).Count() + PortfolioLegs.Made(raw).Count + BookedTrades.LoadedBy(raw).Count, PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw), register.Settings(state),
             // The packages the Package cells write, and the name the next is given where none is (ADR-0016 notes 90 and 93):
@@ -1069,6 +1081,33 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         var size = source.Descriptor["existingCount"]!.GetValue<int>();
         return DataEdits(workspaces.ChangeScope(workspaceId, revision, user, ScopeOf(state), confirmedCount,
             Context(named.Key, source.ValueDate, size), new PortfolioSourceVersion(named.Key, source.ValueDate, size), origin, $"counterparty {named.Key}"));
+    }
+
+    /// <summary>
+    /// What <paramref name="read"/> answers once the cells it reads have been calculated (ADR-0010 §6's note of 2026-11-21;
+    /// the owner: Price is not pressed while data is loading). Where it is refused because a cell is still being
+    /// calculated, such as a PV01 the engine has not answered, it waits for every cell asked for so far, the configured
+    /// time at most, and reads once more; a cell still being calculated then refuses it with how long it waited. Price
+    /// and its plan wait through it, so the button, the line, the AI and a saved sequence wait alike.
+    /// </summary>
+    public async Task<T> WhenAnswered<T>(Func<T> read, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return read();
+        }
+        catch (WorkspaceRefused pending) when (pending.Code == PortfolioInput.CellPending)
+        {
+            await register.Answered(cellWait, cancellationToken);
+        }
+        try
+        {
+            return read();
+        }
+        catch (WorkspaceRefused still) when (still.Code == PortfolioInput.CellPending)
+        {
+            throw new WorkspaceRefused(still.Code, $"{still.Message} Price waited {cellWait.TotalSeconds:0.#} s for it: price again once it has finished.");
+        }
     }
 
     /// <summary>Price: freezes the revision the user saw and submits one Run for it.</summary>

@@ -127,7 +127,8 @@ builder.Services.AddSingleton<IMeasureModule>(_ => new CcrMeasures(builder.Confi
 builder.Services.AddSingleton<IMeasureModule>(_ => new SimmMeasures(conventions, _ => syntheticMarket.Snapshot(0), simmTables));
 builder.Services.AddSingleton<MeasureRegister>();
 // How many cases one Price prices, the Base among them (ADR-0010 §3's note of 2026-11-08): 50 unless configured.
-builder.Services.AddSingleton(new PortfolioOptions(builder.Configuration.GetValue("Portfolio:CaseCap", PortfolioCases.DefaultCap)));
+builder.Services.AddSingleton(new PortfolioOptions(builder.Configuration.GetValue("Portfolio:CaseCap", PortfolioCases.DefaultCap),
+    builder.Configuration.GetValue("Portfolio:CellWaitMilliseconds", PortfolioOptions.DefaultCellWaitMilliseconds)));
 // Saved sets (C32, ADR-0010 §4) beside the workspaces; a user's desk is configuration, Qube:Desks: { "<user>": "<desk>" }.
 builder.Services.AddSingleton<ISavedItemStore>(_ => new SqliteSavedItemStore(database));
 builder.Services.AddSingleton(new Desks(builder.Configuration.GetSection("Qube:Desks").GetChildren()

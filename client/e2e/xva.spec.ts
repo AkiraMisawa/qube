@@ -2074,6 +2074,36 @@ test('ADR-0010 §3 note of 2026-11-19, ADR-0016 §2: a workspace the AI moves wh
     .toHaveText(['Base', 'add DRAFT-1 · with new DRAFT-3 out of After', 'add DRAFT-2 · with new DRAFT-3 out of After']);
 });
 
+test('ADR-0010 §6 note of 2026-11-21: while the server says Price waits on a PV01 still being calculated, the Price button cannot be pressed and says why, the status line says it where a touch screen reads it, and the button is back once it has finished', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await taken(page, 'measures', 'cva fva');
+  const price = page.getByTestId('price');
+  await expect(price).toBeEnabled();
+
+  // The workspace as the server gives it while DRAFT-1's PV01 is still being calculated: how long the engine takes is
+  // not the test's to hold, so the view says it until the test lets the server's own view through again.
+  const waits = 'PV01 of DRAFT-1 is still being calculated. Price waits for the calculation to finish.';
+  let calculating = true;
+  const view = /\/api\/xva\/workspaces\/[^/?]+$/;
+  await page.route(view, async (route) => {
+    if (!calculating || route.request().method() !== 'GET') return route.continue();
+    const served = await route.fetch();
+    return route.fulfill({ response: served, json: { ...(await served.json()), pendingCells: 1, priceWaits: waits } });
+  });
+  // An edit has the page read the workspace again.
+  await taken(page, 'set', 'DRAFT-1 margin 2');
+  await expect(price).toBeDisabled();
+  await expect(price).toHaveAttribute('title', waits);
+  await expect(page.getByTestId('price-waits')).toHaveText(waits);
+
+  // The page reads the workspace again while a cell is pending, so the button comes back once the server says nothing waits.
+  calculating = false;
+  await expect(price).toBeEnabled();
+  await expect(page.getByTestId('price-waits')).toBeHidden();
+  await page.unroute(view);
+});
+
 test('ADR-0016 notes 90 to 95, ADR-0010 §3: a package typed in the Package column is one case that adds its new trades together and takes its existing trade out, Price refuses the column until Add each makes it, Make package… adds one of the two selections, any trade left out by its press, to a package beside those a trade is in, so two packages take out one existing trade and add one new trade, and the Changes tab lists each case\'s package and trades', async ({ page, problems }) => {
   const refused = 'error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
   await open(page);

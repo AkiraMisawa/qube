@@ -121,8 +121,9 @@ public static class XvaApi
         // What Price would price at the revision the page shows, which Price's confirmation lists case by case before
         // it invokes `price` at that revision (ADR-0010 §3's note of 2026-11-19): a workspace moved since is refused,
         // here and at the press, rather than listed or priced unseen.
-        ws.MapGet("/{id}/price-plan", (string id, long? revision, CurrentUser user, PortfolioWorkspaces service) =>
-            Guard(() => Results.Ok(service.PlanPrice(id, Read(revision), user.Id))));
+        // It waits, as Price does, for a cell still being calculated (ADR-0010 §6's note of 2026-11-21).
+        ws.MapGet("/{id}/price-plan", (string id, long? revision, CurrentUser user, PortfolioWorkspaces service, CancellationToken cancellationToken) =>
+            Guard(async () => Results.Ok(await service.WhenAnswered(() => service.PlanPrice(id, Read(revision), user.Id), cancellationToken))));
 
         ws.MapDelete("/{id}", (string id, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
@@ -144,16 +145,33 @@ public static class XvaApi
         }
         catch (WorkspaceRefused refused)
         {
-            var issues = refused.Targets.Select(t => new CompositionIssue(refused.Code, $"/{t.Entity}/{t.Field}", refused.Message)).ToList();
-            var status = refused.Code switch
-            {
-                "UnknownWorkspace" or "UnknownRun" or "UnknownScenario" => 404,
-                "NotOwner" => 403,
-                "RevisionMoved" or "ConfirmationStale" or "UnresolvedEdits" or "ConflictUnresolved" or "RunRunning" => 409,
-                _ => 422,
-            };
-            return Results.Json(new Api.ErrorEnvelope(refused.Code, refused.Message, issues), statusCode: status);
+            return Refused(refused);
         }
+    }
+
+    static async Task<IResult> Guard(Func<Task<IResult>> handle)
+    {
+        try
+        {
+            return await handle();
+        }
+        catch (WorkspaceRefused refused)
+        {
+            return Refused(refused);
+        }
+    }
+
+    static IResult Refused(WorkspaceRefused refused)
+    {
+        var issues = refused.Targets.Select(t => new CompositionIssue(refused.Code, $"/{t.Entity}/{t.Field}", refused.Message)).ToList();
+        var status = refused.Code switch
+        {
+            "UnknownWorkspace" or "UnknownRun" or "UnknownScenario" => 404,
+            "NotOwner" => 403,
+            "RevisionMoved" or "ConfirmationStale" or "UnresolvedEdits" or "ConflictUnresolved" or "RunRunning" or PortfolioInput.CellPending => 409,
+            _ => 422,
+        };
+        return Results.Json(new Api.ErrorEnvelope(refused.Code, refused.Message, issues), statusCode: status);
     }
 }
 

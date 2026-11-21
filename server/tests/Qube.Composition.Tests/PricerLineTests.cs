@@ -3,6 +3,7 @@ using Qube.Composition.Application;
 using Qube.Composition.Application.Saved;
 using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
+using Qube.Composition.Contracts;
 using Qube.Samples.Ccr;
 using Qube.Samples.Portfolio;
 using Qube.Samples.Xva;
@@ -28,7 +29,7 @@ public class PricerLineTests
         public IDataStore Store { get; }
         public string Id { get; }
 
-        public Rig(int existing = 40, int? caseCap = null, Pv01Provider? pv01 = null, string registration = "ABC/LE-01")
+        public Rig(int existing = 40, int? caseCap = null, Pv01Provider? pv01 = null, string registration = "ABC/LE-01", int? cellWait = null)
         {
             var register = new MeasureRegister([new XvaMeasures(pv01 ?? Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()]);
             Workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules(register) }, TimeProvider.System);
@@ -40,7 +41,7 @@ public class PricerLineTests
             var store = new InMemoryDataStore();
             Runs = new RunService(registry, store, TimeProvider.System);
             Service = service = new PortfolioWorkspaces(Workspaces, store, Runs, register, UnsetSettings.Pricer(),
-                caseCap is { } cap ? new PortfolioOptions(cap) : null,
+                new PortfolioOptions(caseCap ?? PortfolioCases.DefaultCap, cellWait ?? PortfolioOptions.DefaultCellWaitMilliseconds),
                 new SavedItems(new InMemorySavedItemStore(), new Desks(new Dictionary<string, string> { ["akira"] = "rates" }), TimeProvider.System));
             Commands = new CommandService(registry, store);
             Store = store;
@@ -972,5 +973,71 @@ public class PricerLineTests
         Assert.Equal(before, rig.State.Revision);
         Assert.Equal("Nothing would be asked again: no result has failed.", rig.Preview("pv01 retry").Would);
         Assert.Equal("No result had failed, so nothing was asked again.", await rig.Invoke("xva.pv01.retry", []));
+    }
+
+    [Fact] // ADR-0010 §6's note of 2026-11-21: while a PV01 is still being calculated the page says Price waits, the line says Enter waits, and Price waits for it and prices what it answered
+    public async Task Price_waits_for_a_pv01_still_being_calculated_and_prices_what_it_answered()
+    {
+        var answer = new TaskCompletionSource<decimal>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pv01 = new Pv01Provider((_, _) => answer.Task);
+        var rig = new Rig(pv01: pv01);
+        await rig.Run(rig.Preview("measures cva fva"));
+        rig.Service.Edit(rig.Id, rig.State.Revision, "akira", "trade:DRAFT-1", XvaMeasures.Field(XvaMeasures.Margin), 2m);
+
+        Assert.Equal("PV01 of DRAFT-1, DRAFT-2 and DRAFT-3 are still being calculated. Price waits for the calculation to finish.", rig.View.PriceWaits);
+        Assert.Equal("PV01 of DRAFT-1, DRAFT-2 and DRAFT-3 are still being calculated. Enter waits for it to finish, then prices as one Run.", rig.Preview("price").Would);
+        // Asked of the service alone, Price is refused at once and submits nothing.
+        var refused = Assert.Throws<WorkspaceRefused>(() => rig.Service.Price(rig.Id, rig.State.Revision, "akira", Guid.NewGuid().ToString()));
+        Assert.Equal((PortfolioInput.CellPending, "PV01 of DRAFT-1, DRAFT-2 and DRAFT-3 are still being calculated."), (refused.Code, refused.Message));
+
+        // Enter waits: nothing is accepted until the engine answers, however long that takes.
+        var pricing = rig.Run(rig.Preview("price"));
+        Assert.False(pricing.IsCompleted);
+        Assert.Empty(rig.View.Runs);
+        answer.SetResult(-1_500m);
+        var said = await pricing;
+
+        var runId = Assert.Single(rig.View.Runs).RunId;
+        Assert.Equal($"Price was accepted as Run {runId}.", said);
+        Assert.Null(rig.View.PriceWaits);
+        // The Run froze the PV01 the engine answered and the PV Adj Margin made of it: no cell of it is pending.
+        var run = rig.Runs.Find(runId)!;
+        var input = PortfolioInput.Cases(rig.Store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference))[0].Input;
+        var cells = input["trades"]!.AsArray().Single(t => t!["tradeId"]!.GetValue<string>() == "DRAFT-1")!["cells"]!;
+        Assert.Equal((-1_500m, -3_000m), (cells["xva.pv01"]!["value"]!.GetValue<decimal>(), cells["xva.pvAdj"]!["value"]!.GetValue<decimal>()));
+    }
+
+    [Fact] // ADR-0010 §6's note of 2026-11-21: a PV01 still being calculated when Price has waited its time refuses Price, saying what it waited on and for how long, and nothing is submitted
+    public async Task Price_still_waiting_after_its_time_is_refused_and_submits_nothing()
+    {
+        var pv01 = new Pv01Provider((_, _) => new TaskCompletionSource<decimal>().Task);
+        var rig = new Rig(pv01: pv01, cellWait: 100);
+        await rig.Run(rig.Preview("measures cva fva"));
+
+        Assert.Equal("CellPending: PV01 of DRAFT-1, DRAFT-2 and DRAFT-3 are still being calculated. Price waited 0.1 s for it: price again once it has finished.",
+            await rig.Invoke("xva.workspace.price", []));
+        Assert.Empty(rig.View.Runs);
+    }
+
+    [Fact] // ADR-0010 §6's note of 2026-11-21: a case that varies a new trade's notional asks its own PV01, which Price waits for though the Base's has answered
+    public async Task Price_waits_for_a_cases_own_pv01()
+    {
+        var varied = new TaskCompletionSource<decimal>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pv01 = new Pv01Provider((request, _) => request.Notional == 2_000_000_000m ? varied.Task : Task.FromResult(-1_500m));
+        var rig = new Rig(pv01: pv01);
+        await rig.Run(rig.Preview("measures cva fva"));
+        _ = rig.View;
+        await pv01.Settled();
+        await rig.Run(rig.Preview("vary DRAFT-1 notional 2bn"));
+
+        // The page reads the Base, whose PV01s have answered; the line reads every case, and says what one waits on.
+        Assert.Null(rig.View.PriceWaits);
+        var case1 = Assert.Single(rig.View.Cases, c => c.Kind == "vary").Title;
+        Assert.Equal($"Case {case1}: PV01 of DRAFT-1 is still being calculated. Enter waits for it to finish, then prices as one Run.", rig.Preview("price").Would);
+
+        var planning = rig.Service.WhenAnswered(() => rig.Service.PlanPrice(rig.Id, rig.State.Revision, "akira"), default);
+        Assert.False(planning.IsCompleted);
+        varied.SetResult(-2_000m);
+        Assert.Equal(["Base", case1], (await planning).Cases.Select(c => c.Title));
     }
 }

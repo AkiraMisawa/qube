@@ -4036,7 +4036,9 @@ Unchanged: every source and every measure is simulated, and every value is synth
   dialog does not refresh itself.
 - **The figures it would refuse may read otherwise at Enter.** One that waits on a market read, as PV01 does, can
   arrive or fail between the list and the press; the dialog says them `as the workspace stands`, and Price itself
-  decides at Enter, as it did before the dialog.
+  decides at Enter, as it did before the dialog. *Narrowed 2026-11-21 (the next section):* the plan now waits for
+  every figure still being calculated, so the only one left is a failed PV01 that `pv01 retry` answers between the
+  list and Enter.
 
 ### What the review changed
 
@@ -4062,6 +4064,62 @@ row; the first of each is the slowest. Recorded, not gated; no target is agreed.
 So a press of Price at 10,000 trades waits about half a second to a second and a half for its list, with the
 button's spinner turning, and Enter then waits as Price did before. This answers the known limit of generic commands'
 delivery step 3b on what reading `price` costs at that size.
+
+## Price waits while a figure is still being calculated (ADR-0010 §6's note of 2026-11-21)
+
+The owner, 2026-11-21: 「pv01計算中にプライスが押せるようにはならない」 ("Price cannot be pressed while PV01 is being
+calculated") and 「データのロードとかが起こってる時は常にそうするべき」 ("it should always be so while data is loading"). The
+rule is CONFIRMED; how it is built is DEFAULT, recorded as ADR-0010 §6's note of that day. Until then a PV01 still
+pending at Price refused XVA's measures by name and priced the rest. Built in the same pull request as the section
+above (#55).
+
+### What runs
+
+- **Price waits for every cell still being calculated** among the trades it would price, in every case, a case's own
+  included, whatever measure registered the column (`IMeasureModule.Answered`, `MeasureRegister.Waiting`). Every case
+  is read first, so every cell is asked at once. PV01 is the only such column today.
+- **The Price button cannot be pressed** while a trade in Before or After waits on one, and says why on its title and
+  on the status line (`PV01 of DRAFT-1 is still being calculated. Price waits for the calculation to finish.`); the
+  sentence is the view's (`priceWaits`), and the button is back once the page's poll sees it answered.
+- **The price command and the plan wait, bounded** (`PortfolioWorkspaces.WhenAnswered`): the line, the AI, a saved
+  sequence and the plan a press reads wait for the calculation, then price or list what it answered. The bound is
+  10 s (`Portfolio:CellWaitMilliseconds`, DEFAULT); past it the command is refused (`CellPending`, 409 on the plan)
+  with what it waited on and the time, and nothing is submitted, so the same command again is safe. The line's
+  reading says `Enter waits for it to finish, then prices as one Run.`
+- **A failed PV01 is refused as before**, by name, with the rest priced.
+- The simulated PV01 engine with no delay answers as it is asked (`Pv01Provider(..., atOnce: true)`), so a test that
+  loads a trade and prices it at once does not wait; the host's still answers after 400 ms.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | 1698 passed |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 553 passed |
+| The new browser test (the button disabled with its reason while the server says Price waits, and back after), `--repeat-each=3`, Chromium headless on Linux, the built client served by the host | 3 passed |
+| `cd client && npm run build && npx playwright test` (every spec, Chromium headless on Linux) | E2E_COUNT |
+
+New tests, the failure paths among them: Price waiting for a PV01 still being calculated and pricing what it
+answered (the Run's PV01 and PV Adj are the answer's, and the command does not complete before it), with the view's
+`priceWaits` and the line's reading; a PV01 still pending past the bound refused (`CellPending`) with nothing
+submitted; a case's own PV01 (`vary DRAFT-1 notional 2bn`) waited on by the plan while the view does not say it; and
+in the browser, the button disabled with the server's sentence on its title and the status line, and back once it has
+answered. The three tests that priced a pending PV01 to see XVA refused now price a failed one, and one prices again
+after `pv01 retry` (`A_retried_price_is_the_same_run_after_a_pv01_answered`).
+
+By hand, in the built client served by a host whose PV01 answers after 8 s: SCREENS_BY_HAND.
+
+### Providers
+
+Unchanged: every source and every measure is simulated, and every value is synthetic.
+
+### Known limits
+
+- **The button does not wait on a case's own cell**, which the view does not carry; the press does, within the bound.
+- **The bound is a time.** A calculation slower than 10 s refuses the command, which says so and can be repeated; a
+  wait that never ends was not taken. It is configurable, and nothing measures a real engine yet.
+- **A Price running while the input changes** is not built: whether to ask before stopping it, or to offer another
+  panel, waits for the owner's answer (no Run can be stopped today).
 
 ## Rates lines named in order (ADR-0016 note 65, 2026-11-14)
 

@@ -442,7 +442,12 @@ static class PortfolioCommand
     /// refusal is the command's, by code.
     /// </summary>
     public static Task<IReadOnlyDictionary<string, JsonNode?>> Asked(CapabilityInvocation invocation, Func<PortfolioWorkspaces> workspaces,
-        Func<PortfolioWorkspaces, JsonNode, Caller, long, JsonObject> act)
+        Func<PortfolioWorkspaces, JsonNode, Caller, long, JsonObject> act) =>
+        Awaited(invocation, workspaces, (service, request, caller, revision) => Task.FromResult(act(service, request, caller, revision)));
+
+    /// <summary>As <see cref="Asked"/>, for a command that waits, as Price waits for what it reads (ADR-0010 §6's note of 2026-11-21).</summary>
+    public static async Task<IReadOnlyDictionary<string, JsonNode?>> Awaited(CapabilityInvocation invocation, Func<PortfolioWorkspaces> workspaces,
+        Func<PortfolioWorkspaces, JsonNode, Caller, long, Task<JsonObject>> act)
     {
         var caller = invocation.Caller ?? throw new CapabilityFailure("NoCaller", "A command is invoked for a caller, through the command gateway.");
         var request = invocation.Inputs["request"] ?? throw new CapabilityFailure("InvalidInput", "The command takes a request.");
@@ -451,7 +456,7 @@ static class PortfolioCommand
         {
             var workspaceId = CommandRequests.Text(request, "workspaceId");
             var revision = request["revision"]?.GetValue<long>() ?? service.Revision(workspaceId, caller.UserId);
-            return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?> { ["answer"] = act(service, request, caller, revision) });
+            return new Dictionary<string, JsonNode?> { ["answer"] = await act(service, request, caller, revision) };
         }
         catch (WorkspaceRefused refused)
         {

@@ -22,8 +22,10 @@ public sealed record Pv01Answer(string State, decimal? Value, string? Reason)
 /// New trades' PV01 as the engine answers it (ADR-0010 §6): asked once for a trade's terms and value date, the first
 /// time the trade is read, and kept. Terms that change are another request; a failed one stays failed until it is
 /// asked again (<see cref="Retry"/>). A PV01 is a result looked up, not a business submission, so it is no Run.
+/// An engine is asked off the reader's thread, unless <paramref name="atOnce"/> says it answers at once, computing and
+/// waiting on nothing, as the simulated one with no delay does: its PV01 is then there on the first read.
 /// </summary>
-public sealed class Pv01Provider(Pv01Provider.Engine engine)
+public sealed class Pv01Provider(Pv01Provider.Engine engine, bool atOnce = false)
 {
     /// <summary>The engine's PV01 of one trade, in the trade's currency per basis point. A failure says why.</summary>
     public delegate Task<decimal> Engine(Pv01Request request, CancellationToken cancellationToken);
@@ -35,11 +37,13 @@ public sealed class Pv01Provider(Pv01Provider.Engine engine)
     /// it. It is not a model of anything. It answers after <paramref name="delay"/>, as an engine would, and fails for
     /// a curve its market does not have.
     /// </summary>
-    public static Pv01Provider Simulated(TimeSpan delay, TimeProvider? time = null) => new(async (request, cancellationToken) =>
-    {
-        if (delay > TimeSpan.Zero) await Task.Delay(delay, time ?? TimeProvider.System, cancellationToken);
-        return SimulatedPv01(request);
-    });
+    public static Pv01Provider Simulated(TimeSpan delay, TimeProvider? time = null) => delay > TimeSpan.Zero
+        ? new(async (request, cancellationToken) =>
+        {
+            await Task.Delay(delay, time ?? TimeProvider.System, cancellationToken);
+            return SimulatedPv01(request);
+        })
+        : new((request, _) => Task.FromResult(SimulatedPv01(request)), atOnce: true);
 
     public static decimal SimulatedPv01(Pv01Request request)
     {
@@ -83,8 +87,17 @@ public sealed class Pv01Provider(Pv01Provider.Engine engine)
     /// <summary>Completes once every request asked so far has answered or failed; for a caller that must read them settled.</summary>
     public Task Settled() => Task.WhenAll(asked.Values.Select(l => l.Value)).ContinueWith(_ => { }, TaskScheduler.Default);
 
-    // Never on the reader's thread: a page read does not wait for an engine.
-    async Task<decimal> Ask(Pv01Request request)
+    // Never on the reader's thread, but for an engine that answers at once: a page read does not wait for an engine.
+    Task<decimal> Ask(Pv01Request request) => atOnce ? AtOnce(request) : OffTheReader(request);
+
+    // An engine that answers at once and throws says why as a failed PV01, as one off the reader's thread does.
+    Task<decimal> AtOnce(Pv01Request request)
+    {
+        try { return engine(request, CancellationToken.None); }
+        catch (Exception failed) { return Task.FromException<decimal>(failed); }
+    }
+
+    async Task<decimal> OffTheReader(Pv01Request request)
     {
         await Task.Yield();
         return await engine(request, CancellationToken.None);

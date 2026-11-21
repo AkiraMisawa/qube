@@ -1100,8 +1100,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
             );
           })}
         </div>
-        <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={!notBusy && busy !== 'Pricing'} data-testid="price"
-          {...(blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>{priceLabel(ws.measures, ws.selectedMeasures, ws.cases.length, { before: ws.inBefore > 0, after: ws.inAfter > 0 }, 1 + ws.scenarios.filter((x) => x.included).length)}</Button>
+        {/* Price waits while a cell it reads is still being calculated (ADR-0010 §6's note of 2026-11-21; the owner: Price
+            is not pressed while data is loading): the button cannot be pressed and says why, and the status line says it
+            where a touch screen reads it. The server decides it, and Price waits for it however it is asked. */}
+        <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={(!notBusy && busy !== 'Pricing') || ws.priceWaits !== undefined} data-testid="price"
+          {...(ws.priceWaits !== undefined ? { title: ws.priceWaits } : blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>{priceLabel(ws.measures, ws.selectedMeasures, ws.cases.length, { before: ws.inBefore > 0, after: ws.inAfter > 0 }, 1 + ws.scenarios.filter((x) => x.included).length)}</Button>
       </div>
       {/* The status line: what the figures stand on, and SIMULATED while a provider is. */}
       <Group gap="xs" wrap="wrap" className="qube-xva-status">
@@ -1109,6 +1112,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         <Text size="xs">{ws.agreement.maId} · {ws.agreement.collateralised ? `main CSA ${ws.agreement.mainCsaId}` : ws.agreement.noCsa}</Text>
         {/* Said where it is read on every width, a touch screen's too: the control's title is a pointer's alone. */}
         <Text size="xs" data-testid="display-currency-from">{currencyFrom(ws.displayCurrency, ws.displayCurrencyFrom)}</Text>
+        {ws.priceWaits !== undefined && <Text size="xs" data-testid="price-waits">{ws.priceWaits}</Text>}
         {ws.simulated.length > 0 && (
           <Badge variant="light" color="yellow" data-testid="simulated" title={`Figures from a simulated provider: ${ws.simulated.join(', ')}. They are not a model of anything.`}>SIMULATED</Badge>
         )}

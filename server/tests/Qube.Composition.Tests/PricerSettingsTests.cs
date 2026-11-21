@@ -146,24 +146,25 @@ public class PricerSettingsTests
     [Fact] // ADR-0010 §6, §8: PV adjustment off prices new trades with no PV Adj, and a PV Adj not known refuses nothing then
     public async Task Pv_adjustment_off_prices_new_trades_without_one()
     {
-        var answer = new TaskCompletionSource<decimal>();
-        var pv01 = new Pv01Provider((_, _) => answer.Task);
+        // A PV01 that failed leaves the PV Adj unknown; one still being calculated is waited for (ADR-0010 §6's note of 2026-11-21).
+        var down = true;
+        var pv01 = new Pv01Provider((_, _) => down ? Task.FromException<decimal>(new InvalidOperationException("The engine is down.")) : Task.FromResult(-1_500m), atOnce: true);
         var (service, runs, store) = Priced(pv01);
         var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
         ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva fva").State;
         ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", XvaMeasures.Field(XvaMeasures.Margin), 2m);
 
-        var (_, pending) = await Price(runs, store, service, ws);
-        Assert.Equal(MeasureResult.Refused, Row(pending, "cva")["afterStatus"]!.GetValue<string>());
-        Assert.StartsWith("PV Adj of DRAFT-1 is unknown", Row(pending, "cva")["reason"]!.GetValue<string>());
+        var (_, failed) = await Price(runs, store, service, ws);
+        Assert.Equal(MeasureResult.Refused, Row(failed, "cva")["afterStatus"]!.GetValue<string>());
+        Assert.StartsWith("PV Adj of DRAFT-1 is unknown", Row(failed, "cva")["reason"]!.GetValue<string>());
         ws = Set(ws, "pv adjustment", "off");
         var (input, off) = await Price(runs, store, service, ws);
         Assert.Equal(MeasureResult.Priced, Row(off, "cva")["afterStatus"]!.GetValue<string>());
         Assert.False(input["modules"]!["xva"]!["settings"]!["pvAdjustment"]!.GetValue<bool>());
 
         // With a PV Adj known, it moves the new trades' value only while the setting is on.
-        answer.SetResult(-1_500m);
-        await pv01.Settled();
+        down = false;
+        Assert.Equal(3, service.Retry(ws.WorkspaceId, ws.Revision, "akira"));
         var (_, without) = await Price(runs, store, service, ws);
         ws = Set(ws, "pv adj", "on");
         var (_, with) = await Price(runs, store, service, ws);

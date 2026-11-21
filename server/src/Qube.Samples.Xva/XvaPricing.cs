@@ -69,6 +69,9 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
 
     public IReadOnlyList<MeasureDefinition> Measures => Definitions;
 
+    /// <summary>Every PV01 asked for so far answered or failed (ADR-0010 §6's note of 2026-11-21).</summary>
+    public Task Answered() => pv01.Settled();
+
     public IReadOnlyList<TradeColumn> TradeColumns { get; } =
         [new(Pv01, "PV01", "amount", false), new(Margin, "Margin (bp)", "number", true), new(PvAdj, "PV Adj", "amount", true)];
 

@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
+using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
 
@@ -179,6 +180,12 @@ public interface IMeasureModule
     /// <summary>The columns it adds to the trade grids (ADR-0010 §10), in order; none unless it says.</summary>
     IReadOnlyList<TradeColumn> TradeColumns => [];
 
+    /// <summary>
+    /// Completes once every cell of its columns asked for so far has answered or failed: what Price waits on before it
+    /// reads them (ADR-0010 §6's note of 2026-11-21). Never faults. A module whose cells answer at once waits on nothing.
+    /// </summary>
+    Task Answered() => Task.CompletedTask;
+
     /// <summary>The fields of the shared input tabs its measures need (ADR-0010 §10); none unless it says.</summary>
     IReadOnlyList<MeasureInput> Inputs => [];
 
@@ -304,6 +311,47 @@ public sealed class MeasureRegister
                 : (t.Original ?? new Dictionary<string, JsonNode?>()).Concat(held.Select(f => KeyValuePair.Create(f, (JsonNode?)null))).ToDictionary();
             return t with { Cells = row, Original = original };
         })];
+    }
+
+    /// <summary>
+    /// Waits until every module's cells asked for so far have answered or failed, for <paramref name="bound"/> at most
+    /// (ADR-0010 §6's note of 2026-11-21). False where some were still being calculated then: the caller reads again and
+    /// says what still is.
+    /// </summary>
+    public async Task<bool> Answered(TimeSpan bound, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.WhenAll(Modules.Select(m => m.Answered())).WaitAsync(bound, cancellationToken);
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// What keeps Price waiting (ADR-0010 §6's note of 2026-11-21; the owner: 「データのロードとかが起こってる時は常にそうする
+    /// べき」, "whenever data is loading it should always be so"): a cell still being calculated on one of these trades,
+    /// which carry their cells (<see cref="WithCells"/>), such as a PV01 the engine has not answered yet. It names the
+    /// first such column and the trades it waits on there, three at most and how many more; null where none waits.
+    /// </summary>
+    public string? Waiting(IReadOnlyList<EffectiveTrade> trades)
+    {
+        var columns = TradeColumns.ToList();
+        int Place(string field)
+        {
+            var place = columns.FindIndex(c => c.Field == field);
+            return place >= 0 ? place : throw new InvalidOperationException($"A cell {field} is of no registered trade column.");
+        }
+        // A trade with no cells, such as an existing one, waits on nothing.
+        var waiting = trades.Where(t => t.Cells is not null)
+            .SelectMany(t => t.Cells!.Where(c => c.Value.State == TradeCell.Pending).Select(c => (t.TradeId, Place: Place(c.Key))))
+            .GroupBy(x => x.Place).OrderBy(g => g.Key).FirstOrDefault();
+        if (waiting is null) return null;
+        var ids = waiting.Select(x => x.TradeId).Distinct().ToList();
+        return $"{columns[waiting.Key].Title} of {TableWords.Some(ids)} {(ids.Count == 1 ? "is" : "are")} still being calculated.";
     }
 
     /// <summary>Every declared membership rule over a state. A measure that declares membership and gives no rule stops here.</summary>

@@ -162,17 +162,33 @@ public sealed class PortfolioPriceCommand(Func<PortfolioWorkspaces> workspaces) 
         [new("answer", PortfolioPriceContracts.PriceAccepted, PortfolioContracts.Version, Cardinality.One)],
         ExecutionKind.RequestResponse, [CapabilityEffect.Execute], new(["price"], [], PortfolioEditRules.App));
 
-    public LineRead Read(LineContext line) =>
-        PortfolioCommand.Read(line, [], PortfolioPriceContracts.WouldPrice(
-            CommandRequests.Naming(() => workspaces().PlanPrice(line.State.WorkspaceId, line.State.Revision, line.Caller.UserId))));
+    public LineRead Read(LineContext line) => PortfolioCommand.Read(line, [], Would(line));
+
+    // A reading says what Price would price, or, while a cell it reads is still being calculated, that Enter waits for
+    // it and then prices (ADR-0010 §6's note of 2026-11-21): a line read the moment after an edit is not refused for it.
+    string Would(LineContext line)
+    {
+        try
+        {
+            return PortfolioPriceContracts.WouldPrice(
+                CommandRequests.Naming(() => workspaces().PlanPrice(line.State.WorkspaceId, line.State.Revision, line.Caller.UserId)));
+        }
+        catch (WorkspaceRefused pending) when (pending.Code == PortfolioInput.CellPending)
+        {
+            return $"{pending.Message} Enter waits for it to finish, then prices as one Run.";
+        }
+    }
 
     public LineCompletions Complete(LineContext line) => LineCompletions.None;
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
-        PortfolioCommand.Asked(invocation, workspaces, (service, request, caller, revision) =>
+        PortfolioCommand.Awaited(invocation, workspaces, async (service, request, caller, revision) =>
         {
             var id = CommandRequests.Text(request, "workspaceId");
-            var run = CommandRequests.Accepted(CommandRequests.Naming(() => service.Price(id, revision, caller.UserId, CommandRequests.Key(invocation, "Price"), caller.Origin)));
+            // Price waits for a cell still being calculated (ADR-0010 §6's note of 2026-11-21); a Price refused for one
+            // submitted nothing, so the key is asked once more as it was.
+            var run = CommandRequests.Accepted(await service.WhenAnswered(
+                () => CommandRequests.Naming(() => service.Price(id, revision, caller.UserId, CommandRequests.Key(invocation, "Price"), caller.Origin)), cancellationToken));
             return new JsonObject { ["workspaceId"] = id, ["revision"] = revision, ["said"] = $"Price was accepted as Run {run.RunId}.", ["runId"] = run.RunId };
         });
 }

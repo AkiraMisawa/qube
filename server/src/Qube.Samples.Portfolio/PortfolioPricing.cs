@@ -213,6 +213,9 @@ public sealed record PricedCase(string Id, string Title, string Kind, JsonObject
 /// </summary>
 public static class PortfolioInput
 {
+    /// <summary>The code of a Price refused while a cell it reads is still being calculated (ADR-0010 §6's note of 2026-11-21).</summary>
+    public const string CellPending = "CellPending";
+
     public static JsonObject Build(WorkspaceFreeze freeze, MeasureRegister register, int caseCap = PortfolioCases.DefaultCap)
     {
         var raw = freeze.State;
@@ -251,6 +254,12 @@ public static class PortfolioInput
             throw ProjectNames.MissingAtPrice();
         var selected = PortfolioMaterialiser.SelectedMeasures(state, register);
         var loaded = BookedTrades.LoadedBy(raw).Where(id => source.Trade(id) is not null).ToList();
+        // Price waits while a cell is still being calculated (ADR-0010 §6's note of 2026-11-21): every case is read
+        // first, so that each asks for what it waits on at once, and a cell still pending refuses the whole Price.
+        var waiting = new List<string>();
+        var priced = new JsonArray([.. cases.Select(c => Case(c, raw, register, selected, waiting))]);
+        if (waiting.Count > 0)
+            throw new WorkspaceRefused(CellPending, $"{waiting[0]}{(waiting.Count > 1 ? $" {TableWords.Counted(waiting.Count - 1, "more case")} {(waiting.Count == 2 ? "waits" : "wait")} too." : "")}");
         return new JsonObject
         {
             ["workspaceId"] = freeze.WorkspaceId,
@@ -283,7 +292,7 @@ public static class PortfolioInput
                     ["category"] = sh.Category, ["index"] = sh.Index, ["tenor"] = sh.Tenor, ["type"] = sh.Type, ["size"] = sh.Size,
                 })]),
             })]),
-            ["cases"] = new JsonArray([.. cases.Select(c => Case(c, raw, register, selected))]),
+            ["cases"] = priced,
             ["overrides"] = new JsonArray([.. freeze.Overrides.Select(o => new JsonObject
             {
                 ["entity"] = o.Target.Entity, ["field"] = o.Target.Field, ["layer"] = o.Target.Layer, ["value"] = o.Value?.DeepClone(), ["baseVersion"] = o.BaseVersion, ["seq"] = o.Seq,
@@ -291,7 +300,7 @@ public static class PortfolioInput
         };
     }
 
-    static JsonObject Case(CaseView @case, WorkspaceState raw, MeasureRegister register, IReadOnlyList<string> selected)
+    static JsonObject Case(CaseView @case, WorkspaceState raw, MeasureRegister register, IReadOnlyList<string> selected, List<string> waiting)
     {
         var state = PortfolioCases.Reading(raw, @case.Id);
         var named = @case.Id == PortfolioCases.BaseId ? "" : $"Case {@case.Title}: ";
@@ -319,6 +328,8 @@ public static class PortfolioInput
                 throw new WorkspaceRefused("AdditionSetChanged",
                     $"{named}its After holds {string.Join(", ", back)}, which the case takes out. Run add each again to make the set anew.");
         }
+        // What the case waits on is said once every case has been read (Build).
+        if (register.Waiting(trades) is { } waits) waiting.Add(named + waits);
         var refusals = register.Modules
             .SelectMany(m => m.Validate(state, [.. selected.Where(id => m.Measures.Any(d => d.Id == id))], trades))
             .ToDictionary(r => r.Measure);
