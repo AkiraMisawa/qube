@@ -6,7 +6,7 @@ import { columnLabel, diffOf, headlines, inMarket, marketsOf, metricsGrid, metri
 // Diff, and a status in words where there is no figure. Every name and figure is synthetic.
 
 const register: readonly RegisteredMeasure[] = [
-  { id: 'cva', title: 'CVA', module: 'xva', request: 'xva', metrics: [{ id: 'cva', title: 'CVA', diffOnly: false }, { id: 'cvaCharge', title: 'CVA Charge', diffOnly: true, heading: ['CVA Charge', 'or Rebate'] }], headline: 'cva', declaresMembership: false, traced: false, quoted: true, tabs: [] },
+  { id: 'cva', title: 'CVA', module: 'xva', request: 'xva', metrics: [{ id: 'cva', title: 'CVA', diffOnly: false }, { id: 'cvaCharge', title: 'CVA Charge', diffOnly: true, heading: ['CVA charge', 'or rebate'] }], headline: 'cva', declaresMembership: false, traced: false, quoted: true, tabs: [] },
   { id: 'fva', title: 'FVA', module: 'xva', request: 'xva', metrics: [{ id: 'fva', title: 'FVA', diffOnly: false }], headline: 'fva', declaresMembership: false, traced: false, quoted: false, tabs: [] },
 ];
 
@@ -143,26 +143,26 @@ describe('metricsGrid', () => {
     const grid = metricsGrid(metricsTable(register, ['cva', 'fva'], { xva: answered([row('cva', 'cva', -100, -150), row('cva', 'cvaCharge', -125, -187.5), row('fva', 'fva', -10, -12)]) }));
     const [cva, charge] = grid.columns;
 
-    expect(charge!.heading).toEqual(['CVA Charge', 'or Rebate']);
-    expect(columnLabel(charge!, 'diff')).toBe('CVA Charge or Rebate');
+    expect(charge!.heading).toEqual(['CVA charge', 'or rebate']);
+    expect(columnLabel(charge!, 'diff')).toBe('CVA charge or rebate');
     expect([cva!.heading, columnLabel(cva!, 'after')]).toEqual([undefined, 'CVA After']);
   });
 
-  it("ADR-0010 §7's note of 2026-11-21: a heading heads only a metric shown by its Diff alone, and one with no line, or a blank one, heads nothing", () => {
-    const headed = (metric: { readonly diffOnly: boolean; readonly heading: readonly string[] }) => metricsGrid(metricsTable(
-      [{ ...register[0]!, metrics: [{ id: 'cvaCharge', title: 'CVA Charge', ...metric }] }], ['cva'], { xva: answered([row('cva', 'cvaCharge', -125, -187.5)]) })).columns[0]!;
+  it("ADR-0010 §7's note of 2026-11-21: a Diff-only metric with no heading is headed by its title over Diff", () => {
+    const column = metricsGrid(metricsTable([{ ...register[0]!, metrics: [{ id: 'cvaCharge', title: 'CVA Charge', diffOnly: true }] }], ['cva'],
+      { xva: answered([row('cva', 'cvaCharge', -125, -187.5)]) })).columns[0]!;
 
-    expect(headed({ diffOnly: false, heading: ['CVA Charge', 'or Rebate'] }).heading).toBeUndefined();
-    expect(headed({ diffOnly: true, heading: [] }).heading).toBeUndefined();
-    expect(headed({ diffOnly: true, heading: ['CVA Charge', ''] }).heading).toBeUndefined();
-    expect(columnLabel(headed({ diffOnly: true, heading: [] }), 'diff')).toBe('CVA Charge Diff');
+    expect([column.sides, column.heading, columnLabel(column, 'diff')]).toEqual([['diff'], undefined, 'CVA Charge Diff']);
   });
 
-  it("ADR-0010 §7's note of 2026-11-21: with Before priced nowhere, a metric shown by its Diff alone shows its After, as every metric does", () => {
+  it("ADR-0010 §7's note of 2026-11-21: with Before priced nowhere, a metric shown by its Diff alone shows its After in its one column, named, since its heading names no side", () => {
     const grid = metricsGrid(metricsTable(register, ['cva'], { xva: answered([row('cva', 'cva', null, -150), row('cva', 'cvaCharge', null, -187.5)]) }));
 
-    expect(grid.columns.map((c) => [c.metricTitle, c.sides])).toEqual([['CVA', ['after']], ['CVA Charge', ['after']]]);
-    expect(shownCell(grid.rows[0]!.cells['cva.cvaCharge']!, 'after').text).toBe('-188');
+    expect(grid.columns.map((c) => [c.metricTitle, c.sides])).toEqual([['CVA', ['after']], ['CVA Charge', ['diff']]]);
+    expect(shownCell(grid.rows[0]!.cells['cva.cvaCharge']!, 'diff')).toEqual({ text: '-188', status: 'priced', negative: true, note: 'After' });
+    // With After priced nowhere, the Before alone stands there, named: a level, never taken for what a case adds.
+    const before = metricsGrid(metricsTable(register, ['cva'], { xva: answered([row('cva', 'cvaCharge', -125, null)]) }));
+    expect(shownCell(before.rows[0]!.cells['cva.cvaCharge']!, 'diff')).toEqual({ text: '-125', status: 'priced', negative: true, note: 'Before' });
   });
 
   it("ADR-0010 §7's note of 2026-11-21: where a case has no Diff, its one cell says the side it has, named, or the word for why there is none, never blank or 0", () => {

@@ -1,5 +1,5 @@
 import { formatAmount, isLoss } from '../../platform/grid/amounts';
-import type { MetricDefinition, RegisteredMeasure } from './contracts';
+import type { RegisteredMeasure } from './contracts';
 
 // The Metrics dock as a reading of the Run (ADR-0010 §7, §10): a line per case and measure metric with Before, After
 // and Diff. The figures come from the Run's retained results, never from the screen, and where there is no figure the
@@ -48,7 +48,7 @@ export interface MetricLine {
   readonly term: string | undefined;
   /** Whether the dock shows the metric by its Diff alone, as its registration says (ADR-0010 §7's note of 2026-11-21). */
   readonly diffOnly: boolean;
-  /** The heading of that one column, a line a tier, where the registration gives one: CVA Charge over `or Rebate`. */
+  /** The heading of that one column, a line a tier, where the registration gives one: `CVA charge` over `or rebate`. */
   readonly heading: readonly string[] | undefined;
 }
 
@@ -104,16 +104,16 @@ export function diffOf(before: MetricCell, after: MetricCell, value: unknown): M
 const text = (v: unknown) => (typeof v === 'string' && v !== '' ? v : undefined);
 
 /** The trace term a metric's cells open, where its registration names one; none opens the trace at its root. */
-const termOf = (definition: MetricDefinition | undefined): string | undefined => text(definition?.term);
-/** Whether a metric's registration shows it by its Diff alone; a metric the register no longer knows shows every side. */
-const diffOnlyOf = (definition: MetricDefinition | undefined): boolean => definition?.diffOnly === true;
-/** A Diff-only metric's heading as registered; one that is not a line at least, each a text, heads nothing. */
-const headingOf = (definition: MetricDefinition | undefined): readonly string[] | undefined => {
-  const heading = definition?.heading;
-  return definition?.diffOnly === true && Array.isArray(heading) && heading.length > 0 && heading.every((l) => text(l) !== undefined) ? heading : undefined;
+/**
+ * How a line shows its metric, as the registration says: the trace term its cells open; whether it is shown by its Diff
+ * alone, which a metric the register no longer knows is not; and that column's heading, which the server refuses where
+ * it is not a Diff-only metric's, or has no line or a blank one, so it is drawn as it comes.
+ */
+const presentationOf = (measure: RegisteredMeasure | undefined, metric: string): Pick<MetricLine, 'term' | 'diffOnly' | 'heading'> => {
+  const definition = measure?.metrics.find((m) => m.id === metric);
+  const diffOnly = definition?.diffOnly === true;
+  return { term: text(definition?.term), diffOnly, heading: diffOnly ? definition?.heading ?? undefined : undefined };
 };
-const definitionOf = (measure: RegisteredMeasure | undefined, metric: string): MetricDefinition | undefined =>
-  measure?.metrics.find((m) => m.id === metric);
 const count = (v: unknown) => (typeof v === 'number' ? v : undefined);
 
 /**
@@ -123,14 +123,11 @@ const count = (v: unknown) => (typeof v === 'number' ? v : undefined);
  */
 export function metricsTable(register: readonly RegisteredMeasure[], priced: readonly string[], results: Readonly<Record<string, ModuleResult>>): MetricsTable {
   const lines: MetricLine[] = [];
-  const blank = (measure: string, measureTitle: string, metric: string, metricTitle: string, cell: MetricCell, reason: string | undefined): MetricLine => {
-    const definition = definitionOf(register.find((m) => m.id === measure), metric);
-    return {
+  const blank = (measure: string, measureTitle: string, metric: string, metricTitle: string, cell: MetricCell, reason: string | undefined): MetricLine => ({
     key: `${measure}.${metric}`, case: undefined, caseTitle: undefined, scenario: undefined, scenarioTitle: undefined, measure, measureTitle, metric, metricTitle, currency: undefined,
     before: cell, after: cell, diff: cell, tradesBefore: undefined, tradesAfter: undefined, reason, basis: undefined, conversion: undefined,
-    term: termOf(definition), diffOnly: diffOnlyOf(definition), heading: headingOf(definition),
-    };
-  };
+    ...presentationOf(register.find((m) => m.id === measure), metric),
+  });
 
   for (const id of priced) {
     const measure = register.find((m) => m.id === id);
@@ -154,7 +151,7 @@ export function metricsTable(register: readonly RegisteredMeasure[], priced: rea
         scenario, scenarioTitle: text(row.scenarioTitle) ?? BASE_MARKET.title, measure: measure.id, measureTitle: measure.title,
         metric, metricTitle: String(row.metricTitle), currency: text(row.currency), before, after, diff: diffOf(before, after, row.diff),
         tradesBefore: count(row.tradesBefore), tradesAfter: count(row.tradesAfter), reason: text(row.reason), basis: text(row.basis), conversion: text(row.conversion),
-        term: termOf(definitionOf(measure, metric)), diffOnly: diffOnlyOf(definitionOf(measure, metric)), heading: headingOf(definitionOf(measure, metric)),
+        ...presentationOf(measure, metric),
       });
     }
   }
@@ -203,8 +200,9 @@ export interface MetricsGrid {
 
 /**
  * A measure metric's column group, with the sides it draws: those the table draws (§7), or for a metric shown by its Diff
- * alone the Diff, and where the table draws no Diff the one side it draws. A heading, where that metric registers one,
- * heads its one column in tiers, in place of its title over the side (§7's note of 2026-11-21).
+ * alone its one column, which names a side in its cell where a case has no Diff, the table's other sides included. A
+ * heading, where that metric registers one, heads that column in tiers, in place of its title over `Diff` (§7's note of
+ * 2026-11-21).
  */
 export interface MetricsColumn {
   readonly key: string;
@@ -236,7 +234,7 @@ export function metricsGrid(table: MetricsTable): MetricsGrid {
   for (const line of table.lines)
     if (!columns.has(columnKey(line))) columns.set(columnKey(line), {
       key: columnKey(line), measureTitle: line.measureTitle, metricTitle: line.metricTitle,
-      sides: line.diffOnly && drawn.includes('diff') ? ['diff'] : drawn, heading: line.heading,
+      sides: line.diffOnly ? ['diff'] : drawn, heading: line.heading,
     });
   const cases = new Map<string, string>();
   for (const line of table.lines) if (line.case !== undefined && !cases.has(line.case)) cases.set(line.case, line.caseTitle ?? line.case);

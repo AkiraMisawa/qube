@@ -11,12 +11,11 @@ import { BASE_MARKET, columnLabel, headlines, inMarket, marketsOf, metricsGrid, 
 
 // The latest Price's Metrics, on the workspace page itself (ADR-0010 §7): a row per case, per priced measure Before,
 // After and Diff, or the Diff alone under its own heading for a metric registered so, as CVA Charge (§7's note of
-// 2026-11-21). They are read
-// from the Run's retained results, never recomputed here, and say what they are: simulated, of which revision, and
-// whether the workspace has moved on since. Each module's figures show as its request answers, and a failed request
-// leaves only its own measures unavailable (§10). Collapsed, the dock is its header and one line a case with each
-// measure's headline Diff (§7). A Run that priced scenarios shows one market at a time, the base market first, chosen
-// with the scenario selector; the Metrics, the line and the tabs follow it (§4).
+// 2026-11-21). They are read from the Run's retained results, never recomputed here, and say what they are:
+// simulated, of which revision, and whether the workspace has moved on since. Each module's figures show as its
+// request answers, and a failed request leaves only its own measures unavailable (§10). Collapsed, the dock is its
+// header and one line a case with each measure's headline Diff (§7). A Run that priced scenarios shows one market at a
+// time, the base market first, chosen with the scenario selector; the Metrics, the line and the tabs follow it (§4).
 
 export function XvaResult({ runId, pricedRevision, revision, register, selected, onOpen, onCopyQuote, onTrace, open, onOpenChange, height, tab, onTab, full, onFull, traceCase, onTraceCase, scenario, onScenario, renderTab }: {
   readonly runId: string;

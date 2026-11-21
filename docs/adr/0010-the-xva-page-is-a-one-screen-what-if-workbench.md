@@ -397,10 +397,12 @@ the first case of a measure's membership, which every measure now declares (§10
   what the collapsed line shows: its priced side, named beside the figure (`After -188`), or the word for why there is
   none (`refused`, `unavailable`), never blank and never 0 (DEFAULTs).
   *The same day, the owner's second answer ("write CVA charge or rebate in two tiers; Diff is not needed"):* the one
-  column is not headed `CVA Charge` over `Diff` any more but `CVA Charge` over `or Rebate`, one cell standing in both
-  rows of the header, with no side under it. A metric shown by its Diff alone may register such a heading (`heading`,
-  a line a tier, §10's results); one that does not is headed by its title over its side. The heading stands in a Run
-  with one side alone too, where the dock's note says once which side the figures are (DEFAULT).
+  column is not headed `CVA Charge` over `Diff` any more but `CVA charge` over `or rebate` (sentence case, as
+  docs/design-guidelines.md §10 has labels), one cell standing in both rows of the header, with no side under it. A
+  metric shown by its Diff alone may register such a heading (`heading`, a line a tier, §10's results); one that does
+  not is headed by its title over `Diff`. Since the heading names no side, a Run with one side alone names it in each
+  cell of that column (`After -169,598`), as a case with no Diff does above; this replaces the one column headed by
+  the side the dock draws (DEFAULT).
 - **Collapsed**, one line per case with each selected measure's headline Diff: CVA Diff and FVA Diff when XVA is
   selected (owner), MVA when it exists.
 - A result older than the workspace says so in yellow: `revision 5 · workspace now 7`.
@@ -572,7 +574,7 @@ What was XVA's in this ADR, gathered:
   included, advanced
   configuration.
 - **Trade columns**: PV01, Margin and PV Adj (§6).
-- **Results**: CVA Charge in Metrics, by its Diff alone under `CVA Charge` / `or Rebate` (§7's note of 2026-11-21),
+- **Results**: CVA Charge in Metrics, by its Diff alone under `CVA charge` / `or rebate` (§7's note of 2026-11-21),
   the Risks and Profile tabs (the SIMM and capital profiles MVA and KVA return included, without a trace: only spot
   figures are drilled down), and Copy quote (§7).
 - **Validation**: a missing CDS blocks CVA and CVA Charge (DEFAULT).

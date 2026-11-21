@@ -151,7 +151,7 @@ export function textBelowContrast(root: Element, minimum: number): readonly stri
 }
 
 /**
- * Where among a Metrics row's figures the column this label names stands (`CVA After`, `CVA Charge or Rebate`), read
+ * Where among a Metrics row's figures the column this label names stands (`CVA After`, `CVA charge or rebate`), read
  * from the header once it is drawn: its first row holds a group over its sides in the second, or a heading that stands in
  * both rows over its one column (ADR-0010 §7 and its note of 2026-11-21). A label the header does not have fails here,
  * never reads another column.
@@ -159,10 +159,11 @@ export function textBelowContrast(root: Element, minimum: number): readonly stri
 export async function metricsColumn(table: Locator, label: string): Promise<number> {
   await expect(table.getByRole('columnheader', { name: label, exact: true })).toBeVisible();
   const labels = await table.locator('thead').evaluate((thead) => {
-    const [groups, sides] = [...thead.querySelectorAll('tr')];
-    const below = [...(sides?.querySelectorAll('th') ?? [])];
+    const [groups, sides, ...more] = [...thead.querySelectorAll('tr')];
+    if (groups === undefined || sides === undefined || more.length > 0) throw new Error(`The Metrics header has ${thead.querySelectorAll('tr').length} rows, not 2.`);
+    const below = [...sides.querySelectorAll('th')];
     // The first cell is Case, which stands in both rows and over no figure.
-    return [...(groups?.querySelectorAll('th') ?? [])].slice(1).flatMap((th) => (th.rowSpan === 2
+    return [...groups.querySelectorAll('th')].slice(1).flatMap((th) => (th.rowSpan === 2
       ? [th.getAttribute('aria-label')]
       : below.splice(0, th.colSpan).map((side) => side.getAttribute('aria-label'))));
   });

@@ -15,16 +15,25 @@ namespace Qube.Samples.Portfolio;
 /// alone, one column where the others have Before, After and Diff, as CVA Charge (§7's note of 2026-11-21). It is how
 /// the figure is shown, never what is priced: the request still prices both sides and the Run keeps them.
 /// <paramref name="Heading"/> is that one column's heading, a line a tier of the Metrics header, in place of the title
-/// over <c>Diff</c>: CVA Charge's is <c>CVA Charge</c> over <c>or Rebate</c> (§7's note of 2026-11-21, second
+/// over <c>Diff</c>: CVA Charge's is <c>CVA charge</c> over <c>or rebate</c> (§7's note of 2026-11-21, second
 /// paragraph). Only a metric shown by its Diff alone has one, and it has a line at least, none of them blank.
 /// </summary>
 public sealed record MetricDefinition(string Id, string Title, string? Term = null, bool DiffOnly = false, IReadOnlyList<string>? Heading = null)
 {
+    /// <summary>Whether the Metrics show the metric by its Diff alone; fixed with its heading, never changed apart from it.</summary>
+    public bool DiffOnly { get; } = DiffOnly;
+
     /// <summary>The heading of the metric's one Metrics column, a line a tier; none where it is headed by its title over <c>Diff</c>.</summary>
-    public IReadOnlyList<string>? Heading { get; } = Heading is null || (DiffOnly && Heading.Count > 0 && Heading.All(l => !string.IsNullOrWhiteSpace(l)))
-        ? Heading
-        : throw new ArgumentException(
-            $"Metric {Id}'s heading is for a metric shown by its Diff alone, and has a line at least, none of them blank.", nameof(Heading));
+    public IReadOnlyList<string>? Heading { get; } = HeadingProblem(Id, DiffOnly, Heading) is { } problem
+        ? throw new ArgumentException(problem, nameof(Heading))
+        : Heading;
+
+    static string? HeadingProblem(string id, bool diffOnly, IReadOnlyList<string>? heading) =>
+        heading is null ? null
+        : !diffOnly ? $"Metric {id} has a heading but is not shown by its Diff alone: only its one column takes a heading."
+        : heading.Count == 0 ? $"Metric {id}'s heading has no line."
+        : heading.Any(string.IsNullOrWhiteSpace) ? $"Metric {id}'s heading has a blank line."
+        : null;
 }
 
 /// <summary>

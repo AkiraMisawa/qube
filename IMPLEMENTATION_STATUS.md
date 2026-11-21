@@ -4346,18 +4346,19 @@ charge or rebate in two tiers; Diff is not needed.
 
 ### What runs
 
-- The Metrics dock draws CVA Charge as one column, headed `CVA Charge` over `or Rebate` in one header cell standing
+- The Metrics dock draws CVA Charge as one column, headed `CVA charge` over `or rebate` (sentence case, design guidelines §10) in one header cell standing
   in both rows, with no `Diff` under it; CVA, PV and FVA keep Before, After and Diff. The collapsed line, Copy quote,
   the Risks and Profile tabs are unchanged.
 - The heading is XVA's registration too (`heading` on `MetricDefinition`, a line a tier). The server refuses one on a
-  metric not shown by its Diff alone, or with no line or a blank one, where it is registered; the page draws a heading
-  it cannot read as none, under the title and the side.
+  metric not shown by its Diff alone, or with no line or a blank one, where it is registered, and says which; the page
+  draws it as it comes.
 - A metric's registration says it (`diffOnly` on `MetricDefinition`, ADR-0010 §10's results), so the page names no
   measure: XVA registers CVA Charge so, and every other metric of every module is shown as before.
 - Nothing priced changed. XVA's request prices CVA Charge on both sides, the Run keeps Before, After and Diff, and
   Open run and Download show all three.
-- A Run with no Diff anywhere (`After only: Before was not priced`) shows in CVA Charge's one column the side the dock
-  draws, After, under the same heading; the note above the table says which side once (DEFAULT).
+- A Run with no Diff anywhere (`After only: Before was not priced`) names the side in each cell of CVA Charge's one
+  column (`After -169,598`), since its heading names none; a Before-only Run's level is never read as what a case adds
+  (DEFAULT).
 - A case with no Diff among cases that have one shows in that column what the collapsed line shows for it: the priced
   side, named beside the figure (`After -188`), or `refused`, `unavailable` or `…`; never a blank or 0 (DEFAULT). The
   collapsed line now reads the same function (`caseAdds`), so the two cannot drift; Copy quote holds the same rule
