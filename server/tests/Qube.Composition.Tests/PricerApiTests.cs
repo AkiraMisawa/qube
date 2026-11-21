@@ -220,6 +220,19 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.All(Strings(ws["selectedMeasures"]), m => Assert.Contains(m, measures.Select(r => r["id"]!.GetValue<string>())));
     }
 
+    [Fact] // ADR-0010 §7's note of 2026-11-21: CVA Charge is shown by its Diff alone, and every other metric by Before, After and Diff
+    public async Task CVA_Charge_alone_is_registered_to_be_shown_by_its_Diff()
+    {
+        var ws = await Create();
+
+        var diffOnly = ws["measures"]!.AsArray().SelectMany(m => m!["metrics"]!.AsArray()
+            .Select(metric => ($"{m["id"]!.GetValue<string>()}.{metric!["id"]!.GetValue<string>()}", metric["diffOnly"]!.GetValue<bool>()))).ToList();
+
+        Assert.Equal(["cva.cvaCharge"], diffOnly.Where(m => m.Item2).Select(m => m.Item1));
+        Assert.Contains(("cva.cva", false), diffOnly);
+        Assert.Contains(("cva.pv", false), diffOnly);
+    }
+
     [Fact] // ADR-0010 §7, §10, ADR-0012 §7: a measure registers its result tabs beside Metrics, as spot IM's SIMM and spot capital's CCR, drawn as a trace
     public async Task A_measure_lists_the_result_tabs_it_registers()
     {

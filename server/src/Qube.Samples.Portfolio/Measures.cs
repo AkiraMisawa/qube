@@ -11,9 +11,11 @@ namespace Qube.Samples.Portfolio;
 /// <summary>
 /// One figure a measure reports, such as CVA's CVA Charge. <paramref name="Term"/> is the term of the measure's trace its
 /// Metrics cell opens, where the trace has several roots, as spot IM's IM-R opens at <c>collect</c> (ADR-0010 §7's note
-/// of 2026-11-08); none opens the trace at its roots.
+/// of 2026-11-08); none opens the trace at its roots. <paramref name="DiffOnly"/> says the Metrics show it by its Diff
+/// alone, one column where the others have Before, After and Diff, as CVA Charge (§7's note of 2026-11-21). It is how
+/// the figure is shown, never what is priced: the request still prices both sides and the Run keeps them.
 /// </summary>
-public sealed record MetricDefinition(string Id, string Title, string? Term = null);
+public sealed record MetricDefinition(string Id, string Title, string? Term = null, bool DiffOnly = false);
 
 /// <summary>
 /// A measure as its module registers it. <paramref name="Headline"/> is the metric the collapsed result line shows.

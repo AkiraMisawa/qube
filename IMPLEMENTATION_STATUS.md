@@ -4339,6 +4339,50 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
   ADR-0040) and showed three of its four items in a grid three rows high. At eight rows it shows the four at once
   (seen in the built client).
 
+## CVA Charge shown by its Diff alone (ADR-0010 §7's note of 2026-11-21)
+
+The owner: CVA Charge needs one column; of Before, After and Diff, Diff is enough.
+
+### What runs
+
+- The Metrics dock draws CVA Charge as one column, `Diff`, where CVA, PV and FVA keep Before, After and Diff. The
+  collapsed line, Copy quote, the Risks and Profile tabs are unchanged.
+- A metric's registration says it (`diffOnly` on `MetricDefinition`, ADR-0010 §10's results), so the page names no
+  measure: XVA registers CVA Charge so, and every other metric of every module is shown as before.
+- Nothing priced changed. XVA's request prices CVA Charge on both sides, the Run keeps Before, After and Diff, and
+  Open run and Download show all three.
+- A Run with no Diff anywhere (`After only: Before was not priced`) shows CVA Charge's one column as the side the dock
+  draws, `After`, as before (DEFAULT).
+- A case with no Diff among cases that have one shows in that column what the collapsed line shows for it: the priced
+  side, named beside the figure (`After -188`), or `refused`, `unavailable` or `…`; never a blank or 0 (DEFAULT). The
+  collapsed line now reads the same function (`incremental`), so the two cannot drift.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | RESULT_SERVER |
+| `cd client && npm run typecheck && npm test` | RESULT_CLIENT |
+| `cd client && npx playwright test e2e/xva.spec.ts` (Chromium, the built client served by the host), the four tests that read the Metrics' columns, `--repeat-each=3` | 12 passed |
+
+The new unit tests failed with the one column taken away (the grid's sides, and the cell of a one-sided case), and
+the browser test's new assertion failed against a build drawing CVA Charge's three columns, then passed with it back.
+Looked at in the built client with synthetic data at 1440px in both themes, at 390px, and with After alone; no
+console message.
+
+### Providers
+
+Unchanged: CVA Charge is the simulated engine's (CVA times the charge ratio).
+
+### Known limits
+
+- A case with no Diff among cases that have one is held by unit tests alone: the synthetic portfolios give no such
+  Run, since a case's change applies to both of its sides.
+- PV is still shown Before, After and Diff; the owner asked about CVA Charge alone. Making PV one column too is one
+  word in XVA's registration.
+- "The metrics shown are chosen per user and kept" (ADR-0010 §7, DEFAULT) is still not built; this is a fixed choice
+  of the registration, not a user's.
+
 ## Next
 
 1. The owner's answer on one package a row or several (ADR-0016 note 90).
