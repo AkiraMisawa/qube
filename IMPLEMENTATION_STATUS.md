@@ -4341,18 +4341,23 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
 
 ## CVA Charge shown by its Diff alone (ADR-0010 §7's note of 2026-11-21)
 
-The owner: CVA Charge needs one column; of Before, After and Diff, Diff is enough.
+The owner: CVA Charge needs one column; of Before, After and Diff, Diff is enough. Then, the same day: write CVA
+charge or rebate in two tiers; Diff is not needed.
 
 ### What runs
 
-- The Metrics dock draws CVA Charge as one column, `Diff`, where CVA, PV and FVA keep Before, After and Diff. The
-  collapsed line, Copy quote, the Risks and Profile tabs are unchanged.
+- The Metrics dock draws CVA Charge as one column, headed `CVA Charge` over `or Rebate` in one header cell standing
+  in both rows, with no `Diff` under it; CVA, PV and FVA keep Before, After and Diff. The collapsed line, Copy quote,
+  the Risks and Profile tabs are unchanged.
+- The heading is XVA's registration too (`heading` on `MetricDefinition`, a line a tier). The server refuses one on a
+  metric not shown by its Diff alone, or with no line or a blank one, where it is registered; the page draws a heading
+  it cannot read as none, under the title and the side.
 - A metric's registration says it (`diffOnly` on `MetricDefinition`, ADR-0010 §10's results), so the page names no
   measure: XVA registers CVA Charge so, and every other metric of every module is shown as before.
 - Nothing priced changed. XVA's request prices CVA Charge on both sides, the Run keeps Before, After and Diff, and
   Open run and Download show all three.
-- A Run with no Diff anywhere (`After only: Before was not priced`) shows CVA Charge's one column as the side the dock
-  draws, `After`, as before (DEFAULT).
+- A Run with no Diff anywhere (`After only: Before was not priced`) shows in CVA Charge's one column the side the dock
+  draws, After, under the same heading; the note above the table says which side once (DEFAULT).
 - A case with no Diff among cases that have one shows in that column what the collapsed line shows for it: the priced
   side, named beside the figure (`After -188`), or `refused`, `unavailable` or `…`; never a blank or 0 (DEFAULT). The
   collapsed line now reads the same function (`caseAdds`), so the two cannot drift; Copy quote holds the same rule
@@ -4362,12 +4367,14 @@ The owner: CVA Charge needs one column; of Before, After and Diff, Diff is enoug
 
 | Check | Result |
 |---|---|
-| `nix develop -c dotnet test server/Qube.slnx` | 1723 passed |
-| `cd client && npm run typecheck && npm test` | typecheck clean; 561 passed in 52 files |
-| `cd client && npx playwright test e2e/xva.spec.ts` (Chromium, the built client served by the host), the four tests that read the Metrics' columns, `--repeat-each=3` | 12 passed |
+| `nix develop -c dotnet test server/Qube.slnx` | 1726 passed |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 563 passed in 52 files |
+| `cd client && npx playwright test e2e/xva.spec.ts e2e/credit.spec.ts` (Chromium, the built client served by the host), the six tests that read the Metrics' columns, `--repeat-each=3` | 18 passed |
 
 The new unit tests failed with the one column taken away (the grid's sides, and the cell of a one-sided case), and
 the browser test's new assertion failed against a build drawing CVA Charge's three columns, then passed with it back.
+The browser tests read a Metrics figure by its column's place under a header that now has a cell standing in both
+rows (`metricsColumn` in `e2e/fixtures.ts`), which fails by name for a column the header does not have.
 Looked at in the built client with synthetic data at 1440px in both themes, at 390px, and with After alone; no
 console message.
 

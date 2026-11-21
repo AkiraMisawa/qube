@@ -48,6 +48,8 @@ export interface MetricLine {
   readonly term: string | undefined;
   /** Whether the dock shows the metric by its Diff alone, as its registration says (ADR-0010 §7's note of 2026-11-21). */
   readonly diffOnly: boolean;
+  /** The heading of that one column, a line a tier, where the registration gives one: CVA Charge over `or Rebate`. */
+  readonly heading: readonly string[] | undefined;
 }
 
 /** A column of a metric's group in the dock: one side, or the Diff. */
@@ -105,6 +107,11 @@ const text = (v: unknown) => (typeof v === 'string' && v !== '' ? v : undefined)
 const termOf = (definition: MetricDefinition | undefined): string | undefined => text(definition?.term);
 /** Whether a metric's registration shows it by its Diff alone; a metric the register no longer knows shows every side. */
 const diffOnlyOf = (definition: MetricDefinition | undefined): boolean => definition?.diffOnly === true;
+/** A Diff-only metric's heading as registered; one that is not a line at least, each a text, heads nothing. */
+const headingOf = (definition: MetricDefinition | undefined): readonly string[] | undefined => {
+  const heading = definition?.heading;
+  return definition?.diffOnly === true && Array.isArray(heading) && heading.length > 0 && heading.every((l) => text(l) !== undefined) ? heading : undefined;
+};
 const definitionOf = (measure: RegisteredMeasure | undefined, metric: string): MetricDefinition | undefined =>
   measure?.metrics.find((m) => m.id === metric);
 const count = (v: unknown) => (typeof v === 'number' ? v : undefined);
@@ -121,7 +128,7 @@ export function metricsTable(register: readonly RegisteredMeasure[], priced: rea
     return {
     key: `${measure}.${metric}`, case: undefined, caseTitle: undefined, scenario: undefined, scenarioTitle: undefined, measure, measureTitle, metric, metricTitle, currency: undefined,
     before: cell, after: cell, diff: cell, tradesBefore: undefined, tradesAfter: undefined, reason, basis: undefined, conversion: undefined,
-    term: termOf(definition), diffOnly: diffOnlyOf(definition),
+    term: termOf(definition), diffOnly: diffOnlyOf(definition), heading: headingOf(definition),
     };
   };
 
@@ -147,7 +154,7 @@ export function metricsTable(register: readonly RegisteredMeasure[], priced: rea
         scenario, scenarioTitle: text(row.scenarioTitle) ?? BASE_MARKET.title, measure: measure.id, measureTitle: measure.title,
         metric, metricTitle: String(row.metricTitle), currency: text(row.currency), before, after, diff: diffOf(before, after, row.diff),
         tradesBefore: count(row.tradesBefore), tradesAfter: count(row.tradesAfter), reason: text(row.reason), basis: text(row.basis), conversion: text(row.conversion),
-        term: termOf(definitionOf(measure, metric)), diffOnly: diffOnlyOf(definitionOf(measure, metric)),
+        term: termOf(definitionOf(measure, metric)), diffOnly: diffOnlyOf(definitionOf(measure, metric)), heading: headingOf(definitionOf(measure, metric)),
       });
     }
   }
@@ -188,14 +195,28 @@ export function inMarket(table: MetricsTable, scenario: string): MetricsTable {
 }
 
 export interface MetricsGrid {
-  /**
-   * A column group per measure metric, in the lines' order, with the sides it draws: those the table draws (§7), or for
-   * a metric shown by its Diff alone the Diff, and where the table draws no Diff the one side it draws.
-   */
-  readonly columns: readonly { readonly key: string; readonly measureTitle: string; readonly metricTitle: string; readonly sides: readonly ResultSide[] }[];
+  /** A column group per measure metric, in the lines' order. */
+  readonly columns: readonly MetricsColumn[];
   /** A row per case (ADR-0010 §7), each with its line per column; a line of no case stands in every row. */
   readonly rows: readonly { readonly key: string; readonly title: string; readonly cells: Readonly<Record<string, MetricLine>> }[];
 }
+
+/**
+ * A measure metric's column group, with the sides it draws: those the table draws (§7), or for a metric shown by its Diff
+ * alone the Diff, and where the table draws no Diff the one side it draws. A heading, where that metric registers one,
+ * heads its one column in tiers, in place of its title over the side (§7's note of 2026-11-21).
+ */
+export interface MetricsColumn {
+  readonly key: string;
+  readonly measureTitle: string;
+  readonly metricTitle: string;
+  readonly sides: readonly ResultSide[];
+  readonly heading: readonly string[] | undefined;
+}
+
+/** What names a column's cell, for its header and a screen reader: its heading, or its title and side. */
+export const columnLabel = (column: MetricsColumn, side: ResultSide): string =>
+  column.heading?.join(' ') ?? `${column.metricTitle} ${SIDE_TITLES[side]}`;
 
 const columnKey = (line: MetricLine) => `${line.measure}.${line.metric}`;
 
@@ -211,11 +232,11 @@ function drawnSides(table: MetricsTable): readonly ResultSide[] {
 /** The dock's grid: a row per case, a column group per measure metric. */
 export function metricsGrid(table: MetricsTable): MetricsGrid {
   const drawn = drawnSides(table);
-  const columns = new Map<string, MetricsGrid['columns'][number]>();
+  const columns = new Map<string, MetricsColumn>();
   for (const line of table.lines)
     if (!columns.has(columnKey(line))) columns.set(columnKey(line), {
       key: columnKey(line), measureTitle: line.measureTitle, metricTitle: line.metricTitle,
-      sides: line.diffOnly && drawn.includes('diff') ? ['diff'] : drawn,
+      sides: line.diffOnly && drawn.includes('diff') ? ['diff'] : drawn, heading: line.heading,
     });
   const cases = new Map<string, string>();
   for (const line of table.lines) if (line.case !== undefined && !cases.has(line.case)) cases.set(line.case, line.caseTitle ?? line.case);

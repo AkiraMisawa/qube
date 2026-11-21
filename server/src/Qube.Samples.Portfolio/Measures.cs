@@ -14,8 +14,18 @@ namespace Qube.Samples.Portfolio;
 /// of 2026-11-08); none opens the trace at its roots. <paramref name="DiffOnly"/> says the Metrics show it by its Diff
 /// alone, one column where the others have Before, After and Diff, as CVA Charge (§7's note of 2026-11-21). It is how
 /// the figure is shown, never what is priced: the request still prices both sides and the Run keeps them.
+/// <paramref name="Heading"/> is that one column's heading, a line a tier of the Metrics header, in place of the title
+/// over <c>Diff</c>: CVA Charge's is <c>CVA Charge</c> over <c>or Rebate</c> (§7's note of 2026-11-21, second
+/// paragraph). Only a metric shown by its Diff alone has one, and it has a line at least, none of them blank.
 /// </summary>
-public sealed record MetricDefinition(string Id, string Title, string? Term = null, bool DiffOnly = false);
+public sealed record MetricDefinition(string Id, string Title, string? Term = null, bool DiffOnly = false, IReadOnlyList<string>? Heading = null)
+{
+    /// <summary>The heading of the metric's one Metrics column, a line a tier; none where it is headed by its title over <c>Diff</c>.</summary>
+    public IReadOnlyList<string>? Heading { get; } = Heading is null || (DiffOnly && Heading.Count > 0 && Heading.All(l => !string.IsNullOrWhiteSpace(l)))
+        ? Heading
+        : throw new ArgumentException(
+            $"Metric {Id}'s heading is for a metric shown by its Diff alone, and has a line at least, none of them blank.", nameof(Heading));
+}
 
 /// <summary>
 /// A measure as its module registers it. <paramref name="Headline"/> is the metric the collapsed result line shows.

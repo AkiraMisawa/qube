@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import type { Locator, Page } from '@playwright/test';
-import { command, expect, newWorkspace, open, settled, test, textBelowContrast, taken } from './fixtures';
+import { command, expect, metricsColumn, newWorkspace, open, settled, test, textBelowContrast, taken } from './fixtures';
 
 // Slice 02 (docs/plans/slice-02-xva-workspace.md): the XVA workspace and the Pricing DB, driven by keyboard.
 
@@ -70,7 +70,9 @@ test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves it
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   // No existing trade: Before has nothing to price, so the dock draws After alone and says so once (ADR-0010 §7).
   await expect(result.getByTestId('xva-result-note')).toHaveText('After only: Before was not priced');
-  await expect(result.getByRole('columnheader', { name: 'CVA Charge After' })).toBeVisible();
+  // CVA Charge's one column is headed in its two tiers, never by a side (ADR-0010 §7's note of 2026-11-21).
+  await expect(result.getByRole('columnheader', { name: 'CVA Charge or Rebate' })).toBeVisible();
+  await expect(result.getByRole('columnheader', { name: 'CVA After' })).toBeVisible();
   await expect(result.getByRole('columnheader', { name: 'CVA Before' })).toHaveCount(0);
   await expect(result.getByTestId('xva-result-revision')).toHaveText(/^revision \d+$/);
   await result.getByRole('button', { name: 'Open run' }).click();
@@ -590,12 +592,12 @@ test('ADR-0010 §3, §9, ADR-0016 note 28: `vary` says the cases it would make, 
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   const metrics = result.getByRole('table', { name: 'Metrics' });
   await expect(metrics.getByRole('rowheader')).toHaveText(['Base', 'CSA-A threshold 200mm', 'CSA-A threshold 50mm']);
-  // CVA Charge is what a case adds, so its group is the Diff alone, while CVA keeps its three (ADR-0010 §7's note of
-  // 2026-11-21); each case's charge is a figure there.
-  await expect(metrics.getByRole('columnheader', { name: /^CVA Charge / })).toHaveText(['Diff']);
+  // CVA Charge is what a case adds, so it is one column, headed `CVA Charge` over `or Rebate` with no Diff under it,
+  // while CVA keeps its three (ADR-0010 §7's note of 2026-11-21); each case's charge is a figure there.
+  await expect(metrics.getByRole('columnheader', { name: /^CVA Charge/ })).toHaveCount(1);
+  await expect(metrics.getByTestId('xva-result-heading').locator('span')).toHaveText(['CVA Charge', 'or Rebate']);
   await expect(metrics.getByRole('columnheader', { name: /^CVA (Before|After|Diff)$/ })).toHaveText(['Before', 'After', 'Diff']);
-  const charge = await metrics.locator('thead tr').nth(1).locator('th').evaluateAll((ths) => ths.findIndex((t) => t.getAttribute('aria-label') === 'CVA Charge Diff'));
-  expect(charge).toBeGreaterThanOrEqual(0);
+  const charge = await metricsColumn(metrics, 'CVA Charge or Rebate');
   for (const row of await metrics.locator('tbody tr').all()) await expect(row.locator('td').nth(charge)).toHaveText(/^-?[\d,]+$/);
   // Collapsed, the dock keeps a line per case with each measure's headline Diff (ADR-0010 §7).
   await result.getByRole('button', { name: 'Collapse' }).click();

@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { command, expect, newWorkspace, open, settled, test, taken } from './fixtures';
+import { command, expect, metricsColumn, newWorkspace, open, settled, test, taken } from './fixtures';
 
 // ADR-0010 Delivery step 5 (docs/specs/pricer-credit-risks-profile): the Credit and Settings input tabs, and the Risks and
 // Profile result tabs, as only a browser shows them. Every name and figure is synthetic.
@@ -19,9 +19,7 @@ async function price(page: Page): Promise<void> {
 /** The Base's figure in the Metrics column of this label (`CVA After`), once the Run has written it. */
 async function figure(page: Page, label: string): Promise<string> {
   const table = result(page).getByRole('table', { name: 'Metrics' });
-  await expect(table.getByRole('columnheader', { name: label })).toBeVisible();
-  const headers = await table.locator('thead tr').nth(1).locator('th').evaluateAll((ths) => ths.map((t) => t.getAttribute('aria-label')));
-  const cell = table.getByRole('row', { name: /^Base / }).locator('td').nth(headers.indexOf(label));
+  const cell = table.getByRole('row', { name: /^Base / }).locator('td').nth(await metricsColumn(table, label));
   await expect(cell).toHaveText(/^(-?[\d,]+|refused)$/);
   return cell.innerText();
 }

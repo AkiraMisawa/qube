@@ -19,6 +19,11 @@
   text-align: center;
 }
 
+/* A heading in tiers (ADR-0010 §7's note of 2026-11-21): a line each, aligned as its column's figures are. */
+.qube-xva-result-heading-line {
+  display: block;
+}
+
 /* A status in words (`not priced`, `unavailable`, `refused`) is the signal, set apart from the figures by its face
    and never dimmed: the user must read it (docs/design-guidelines.md §7). */
 .qube-xva-result-word {

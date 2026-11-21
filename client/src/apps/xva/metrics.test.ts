@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { RegisteredMeasure } from './contracts';
-import { diffOf, headlines, inMarket, marketsOf, metricsGrid, metricsTable, pricedMeasures, priceLabel, reasons, shownCell, side, tradeCounts, type ModuleResult } from './metrics';
+import { columnLabel, diffOf, headlines, inMarket, marketsOf, metricsGrid, metricsTable, pricedMeasures, priceLabel, reasons, shownCell, side, tradeCounts, type ModuleResult } from './metrics';
 
 // The Metrics dock as a pure reading of the Run (ADR-0010 §7): a line per case and measure metric, Before, After and
 // Diff, and a status in words where there is no figure. Every name and figure is synthetic.
 
 const register: readonly RegisteredMeasure[] = [
-  { id: 'cva', title: 'CVA', module: 'xva', request: 'xva', metrics: [{ id: 'cva', title: 'CVA', diffOnly: false }, { id: 'cvaCharge', title: 'CVA Charge', diffOnly: true }], headline: 'cva', declaresMembership: false, traced: false, quoted: true, tabs: [] },
+  { id: 'cva', title: 'CVA', module: 'xva', request: 'xva', metrics: [{ id: 'cva', title: 'CVA', diffOnly: false }, { id: 'cvaCharge', title: 'CVA Charge', diffOnly: true, heading: ['CVA Charge', 'or Rebate'] }], headline: 'cva', declaresMembership: false, traced: false, quoted: true, tabs: [] },
   { id: 'fva', title: 'FVA', module: 'xva', request: 'xva', metrics: [{ id: 'fva', title: 'FVA', diffOnly: false }], headline: 'fva', declaresMembership: false, traced: false, quoted: false, tabs: [] },
 ];
 
@@ -137,6 +137,25 @@ describe('metricsGrid', () => {
     expect(shownCell(charge, 'diff')).toEqual({ text: '-63', status: 'priced', negative: true });
     // The Run keeps both sides: only the dock leaves them out.
     expect([charge.before.text, charge.after.text]).toEqual(['-125', '-188']);
+  });
+
+  it("ADR-0010 §7's note of 2026-11-21: the one column is headed in tiers as registered, with no Diff under it, and the others by their title and side", () => {
+    const grid = metricsGrid(metricsTable(register, ['cva', 'fva'], { xva: answered([row('cva', 'cva', -100, -150), row('cva', 'cvaCharge', -125, -187.5), row('fva', 'fva', -10, -12)]) }));
+    const [cva, charge] = grid.columns;
+
+    expect(charge!.heading).toEqual(['CVA Charge', 'or Rebate']);
+    expect(columnLabel(charge!, 'diff')).toBe('CVA Charge or Rebate');
+    expect([cva!.heading, columnLabel(cva!, 'after')]).toEqual([undefined, 'CVA After']);
+  });
+
+  it("ADR-0010 §7's note of 2026-11-21: a heading heads only a metric shown by its Diff alone, and one with no line, or a blank one, heads nothing", () => {
+    const headed = (metric: { readonly diffOnly: boolean; readonly heading: readonly string[] }) => metricsGrid(metricsTable(
+      [{ ...register[0]!, metrics: [{ id: 'cvaCharge', title: 'CVA Charge', ...metric }] }], ['cva'], { xva: answered([row('cva', 'cvaCharge', -125, -187.5)]) })).columns[0]!;
+
+    expect(headed({ diffOnly: false, heading: ['CVA Charge', 'or Rebate'] }).heading).toBeUndefined();
+    expect(headed({ diffOnly: true, heading: [] }).heading).toBeUndefined();
+    expect(headed({ diffOnly: true, heading: ['CVA Charge', ''] }).heading).toBeUndefined();
+    expect(columnLabel(headed({ diffOnly: true, heading: [] }), 'diff')).toBe('CVA Charge Diff');
   });
 
   it("ADR-0010 §7's note of 2026-11-21: with Before priced nowhere, a metric shown by its Diff alone shows its After, as every metric does", () => {

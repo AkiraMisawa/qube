@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
+using Qube.Samples.Portfolio;
 
 namespace Qube.Composition.Tests;
 
@@ -231,6 +232,22 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal(["cva.cvaCharge"], diffOnly.Where(m => m.Item2).Select(m => m.Item1));
         Assert.Contains(("cva.cva", false), diffOnly);
         Assert.Contains(("cva.pv", false), diffOnly);
+        // Its one column is headed in two tiers, and no Diff (the owner's second answer of 2026-11-21).
+        var charge = ws["measures"]!.AsArray()[0]!["metrics"]!.AsArray().Single(m => m!["id"]!.GetValue<string>() == "cvaCharge")!;
+        Assert.Equal(["CVA Charge", "or Rebate"], charge["heading"]!.AsArray().Select(l => l!.GetValue<string>()));
+        Assert.All(ws["measures"]!.AsArray().SelectMany(m => m!["metrics"]!.AsArray()).Where(m => m!["id"]!.GetValue<string>() != "cvaCharge"),
+            m => Assert.Null(m!["heading"]));
+    }
+
+    [Theory] // ADR-0010 §7's note of 2026-11-21, spine 1: a heading a metric cannot be headed by is refused where it is registered
+    [InlineData(false, new[] { "CVA Charge", "or Rebate" })]
+    [InlineData(true, new string[0])]
+    [InlineData(true, new[] { "CVA Charge", " " })]
+    public void A_heading_is_a_Diff_only_metrics_and_has_no_blank_line(bool diffOnly, string[] heading)
+    {
+        var refused = Assert.Throws<ArgumentException>(() => new MetricDefinition("cvaCharge", "CVA Charge", DiffOnly: diffOnly, Heading: heading));
+
+        Assert.Contains("cvaCharge", refused.Message);
     }
 
     [Fact] // ADR-0010 §7, §10, ADR-0012 §7: a measure registers its result tabs beside Metrics, as spot IM's SIMM and spot capital's CCR, drawn as a trace
