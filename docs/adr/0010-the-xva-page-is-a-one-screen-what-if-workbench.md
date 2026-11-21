@@ -406,8 +406,9 @@ so a press a moment after a trade loaded made a Run without them.
 
 - **The rule is the page's, not PV01's.** A trade column a measure registers (§10) may hold a cell still being
   calculated. Price waits for every such cell among the trades it would price, in every case, a case's own included
-  (`vary DRAFT-1 notional 2bn` asks that case's PV01 when Price reads it). Every case is read first, so every cell is
-  asked at once and they are waited on together. PV01 is the only such column today.
+  (`vary DRAFT-1 notional 2bn` asks that case's PV01 when Price reads it), and for no other: not another workspace's,
+  nor terms typed over since. Every case is read first, so every cell is asked at once and they are waited on
+  together; the module whose cell it is says when it has answered. PV01 is the only such column today.
 - **The button cannot be pressed** while one of the trades in Before or After waits on one, and says why on its title
   and on the status line, where a touch screen reads it: `PV01 of DRAFT-1 is still being calculated. Price waits for
   the calculation to finish.` The sentence is the server's (the view's `priceWaits`), so the page decides nothing; the
@@ -415,19 +416,34 @@ so a press a moment after a trade loaded made a Run without them.
   it, and the press does.
 - **A command waits, bounded.** `price` on the line, from the AI or in a saved sequence, and the plan a press reads
   (§3's note of 2026-11-19), wait for the calculation to finish and then price, or list, what it answered, as one
-  Run. The wait is at most 10 s (`Portfolio:CellWaitMilliseconds`). A cell still pending after it is refused
-  (`CellPending`, 409) with what it waited on and the time, and nothing is submitted, so the same command again is
-  safe. The line's reading of `price` is not refused: it says `… Enter waits for it to finish, then prices as one
-  Run.` A refusal would have broken `edit; price` in one sequence, and the AI's Price after its own edit.
+  Run. The wait is at most 10 s (`Portfolio:CellWaitMilliseconds`, a positive number of milliseconds). A cell still
+  pending after it is refused (`CellPending`) with what it waited on and the time, and logged with the workspace and
+  the revision; nothing is submitted, so the same command again is safe. Both doors answer it as a conflict to retry
+  (409, `retryable`), the plan's and the command door the line and the AI use. A request cancelled while it waits stops
+  and submits nothing, and another with its key, still waiting, prices in its place. The line's reading of `price` is
+  not refused: it says `… Enter waits for the calculation to finish, then prices as one Run.` A refusal would have broken `edit;
+  price` in one sequence, and the AI's Price after its own edit.
+- **No PV01 is pending for good.** One the engine has not answered in 30 s has failed (`The engine did not answer
+  within 30 s.`, `Xva:Pv01TimeoutMilliseconds`), and the engine is asked to stop; `pv01 retry` asks again. So a hung
+  engine refuses XVA by name, as a failed one does, and never holds every measure's Price.
 - **A failed figure is refused as before**, by name, and the rest priced. It stays failed until `pv01 retry`, so
   waiting would not change it.
 - **What the page itself is loading already held Price**: the button waits while another of the toolbar's commands
   runs, and a press lists the workspace only once the edits already sent have landed (§3).
+- **The Rates page's Price waits for its market** the same way: it prices on the market snapshot the page shows
+  (docs/07 §3), so until that has been read the button cannot be pressed and says so (`The market is still loading;
+  Price waits for it.`), and the badge beside it reads `no market yet`. Nothing else on that page is calculated before
+  Price.
 - *Not built here:* what happens when the input changes while a Price runs, the owner's other point that day
   (「プライス中に入力を変えるのも既存のものを止めていいですかと聞くべき」, "changing the input during a Price should ask whether to
-  stop the one running"), is put to him as a decision of its own, since no Run can be stopped today.
-- *Simulated:* the host's PV01 engine answers after 400 ms (`Xva:Pv01DelayMilliseconds`); one with no delay answers
-  as it is asked, so a test that loads a trade and prices it at once does not wait.
+  stop the one running", and 「もしくは他のパネルにオープンするよう促すとか」, "or prompt to open it in another panel"), is put
+  to him as a decision of its own, since no Run can be stopped today.
+- *Simulated:* the host's PV01 engine answers after 400 ms (`Xva:Pv01DelayMilliseconds`); one with no delay is
+  called on the reader's thread and answers as it is asked, so a test that loads a trade and prices it at once does
+  not wait.
+- *Changed in review, the same day:* Price first waited on every PV01 the server had ever asked, so another
+  workspace's slow one held it its full 10 s; a PV01 the engine never answered held every Price for good; and the
+  command door answered the refusal 422, not as a conflict. Each is as above now.
 
 ### 7. The result dock (CONFIRMED, owner 2026-11-07, unless marked)
 

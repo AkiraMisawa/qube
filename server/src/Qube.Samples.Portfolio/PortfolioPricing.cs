@@ -256,10 +256,14 @@ public static class PortfolioInput
         var loaded = BookedTrades.LoadedBy(raw).Where(id => source.Trade(id) is not null).ToList();
         // Price waits while a cell is still being calculated (ADR-0010 §6's note of 2026-11-21): every case is read
         // first, so that each asks for what it waits on at once, and a cell still pending refuses the whole Price.
-        var waiting = new List<string>();
-        var priced = new JsonArray([.. cases.Select(c => Case(c, raw, register, selected, waiting))]);
+        var read = cases.Select(c => Case(c, raw, register, selected)).ToList();
+        var waiting = read.Select(r => r.Waits).OfType<CellsPending>().ToList();
         if (waiting.Count > 0)
-            throw new WorkspaceRefused(CellPending, $"{waiting[0]}{(waiting.Count > 1 ? $" {TableWords.Counted(waiting.Count - 1, "more case")} {(waiting.Count == 2 ? "waits" : "wait")} too." : "")}");
+            throw new WorkspaceRefused(CellPending, $"{waiting[0].Says}{(waiting.Count > 1 ? $" {TableWords.Counted(waiting.Count - 1, "more case")} {(waiting.Count == 2 ? "waits" : "wait")} too." : "")}")
+            {
+                Settles = Task.WhenAll(waiting.Select(w => w.Answered)),
+            };
+        var priced = new JsonArray([.. read.Select(r => r.Priced)]);
         return new JsonObject
         {
             ["workspaceId"] = freeze.WorkspaceId,
@@ -300,7 +304,8 @@ public static class PortfolioInput
         };
     }
 
-    static JsonObject Case(CaseView @case, WorkspaceState raw, MeasureRegister register, IReadOnlyList<string> selected, List<string> waiting)
+    // A case as Price freezes it, and what it waits on, which Build says once every case has been read.
+    static (JsonObject Priced, CellsPending? Waits) Case(CaseView @case, WorkspaceState raw, MeasureRegister register, IReadOnlyList<string> selected)
     {
         var state = PortfolioCases.Reading(raw, @case.Id);
         var named = @case.Id == PortfolioCases.BaseId ? "" : $"Case {@case.Title}: ";
@@ -328,8 +333,7 @@ public static class PortfolioInput
                 throw new WorkspaceRefused("AdditionSetChanged",
                     $"{named}its After holds {string.Join(", ", back)}, which the case takes out. Run add each again to make the set anew.");
         }
-        // What the case waits on is said once every case has been read (Build).
-        if (register.Waiting(trades) is { } waits) waiting.Add(named + waits);
+        var waits = register.Pending(state, trades) is { } pending ? pending with { Says = named + pending.Says } : null;
         var refusals = register.Modules
             .SelectMany(m => m.Validate(state, [.. selected.Where(id => m.Measures.Any(d => d.Id == id))], trades))
             .ToDictionary(r => r.Measure);
@@ -337,7 +341,7 @@ public static class PortfolioInput
         var modules = new JsonObject();
         foreach (var module in register.Inputs(selected))
             modules[module.Id] = module.Input(state);
-        return new JsonObject
+        return (new JsonObject
         {
             ["id"] = @case.Id,
             // What a case of iterative addition carries in common is said wherever its title is (docs/03 §5).
@@ -361,7 +365,7 @@ public static class PortfolioInput
             // Every CSA a trade of the case uses, with its terms as the case holds them (ADR-0016 note 53).
             ["csas"] = Csas(state, trades),
             ["modules"] = modules,
-        };
+        }, waits);
     }
 
     // Each CSA a trade of the case is under, in the agreement's order, as the case holds it. A trade under no CSA

@@ -4076,50 +4076,78 @@ above (#55).
 ### What runs
 
 - **Price waits for every cell still being calculated** among the trades it would price, in every case, a case's own
-  included, whatever measure registered the column (`IMeasureModule.Answered`, `MeasureRegister.Waiting`). Every case
-  is read first, so every cell is asked at once. PV01 is the only such column today.
+  included, whatever measure registered the column, and for no other trade's: each module says when its cells on
+  those trades have answered (`IMeasureModule.Answered(state, trades)`, `MeasureRegister.Pending`), and the refusal
+  carries it (`WorkspaceRefused.Settles`). Every case is read first, so every cell is asked at once. PV01 is the only
+  such column today.
 - **The Price button cannot be pressed** while a trade in Before or After waits on one, and says why on its title and
   on the status line (`PV01 of DRAFT-1 is still being calculated. Price waits for the calculation to finish.`); the
-  sentence is the view's (`priceWaits`), and the button is back once the page's poll sees it answered.
+  sentence is the view's (`priceWaits`), and the button is back once the page's poll sees it answered. The Rates
+  page's Price waits for its market the same way (`The market is still loading; Price waits for it.`).
 - **The price command and the plan wait, bounded** (`PortfolioWorkspaces.WhenAnswered`): the line, the AI, a saved
   sequence and the plan a press reads wait for the calculation, then price or list what it answered. The bound is
-  10 s (`Portfolio:CellWaitMilliseconds`, DEFAULT); past it the command is refused (`CellPending`, 409 on the plan)
-  with what it waited on and the time, and nothing is submitted, so the same command again is safe. The line's
-  reading says `Enter waits for it to finish, then prices as one Run.`
-- **A failed PV01 is refused as before**, by name, with the rest priced.
-- The simulated PV01 engine with no delay answers as it is asked (`Pv01Provider(..., atOnce: true)`), so a test that
-  loads a trade and prices it at once does not wait; the host's still answers after 400 ms.
+  10 s (`Portfolio:CellWaitMilliseconds`, a positive number, DEFAULT), timed on the injected clock; past it the
+  command is refused (`CellPending`, 409 and `retryable` from both doors) with what it waited on and the time, the
+  refusal is logged with the workspace and revision, and nothing is submitted, so the same command again is safe. A
+  request cancelled while it waits stops and submits nothing, and one that joined its idempotency key prices in its
+  place (`CommandService`); a cancelled command is counted `cancelled`, not `failed`. The line's reading says `Enter
+  waits for the calculation to finish, then prices as one Run.`
+- **No PV01 is pending for good.** One the engine has not answered in 30 s (`Xva:Pv01TimeoutMilliseconds`, DEFAULT)
+  has failed (`The engine did not answer within 30 s.`), and the engine is asked to stop; `pv01 retry` asks again. A
+  failed PV01 is refused as before, by name, with the rest priced.
+- The simulated PV01 engine with no delay is called on the reader's thread (`Pv01Provider(..., onReaderThread:
+  true)`), so a test that loads a trade and prices it at once does not wait; the host's still answers after 400 ms.
 
 ### Verification performed
 
 | Check | Result |
 |---|---|
-| `nix develop -c dotnet test server/Qube.slnx` | 1698 passed |
+| `nix develop -c dotnet test server/Qube.slnx` | 1702 passed, three runs in a row |
 | `cd client && npm run typecheck && npm test` | typecheck clean; 553 passed |
-| The new browser test (the button disabled with its reason while the server says Price waits, and back after), `--repeat-each=3`, Chromium headless on Linux, the built client served by the host | 3 passed |
-| `cd client && npm run build && npx playwright test` (every spec, Chromium headless on Linux) | E2E_COUNT |
+| The new and changed browser tests (the XVA button disabled with its reason while the server says Price waits, and back after; the Rates button disabled until its market is read), `--repeat-each=3`, Chromium headless on Linux, the built client served by the host | 6 passed |
+| `cd client && npm run build && npx playwright test` (every spec, Chromium headless on Linux) | 160 passed |
 
 New tests, the failure paths among them: Price waiting for a PV01 still being calculated and pricing what it
 answered (the Run's PV01 and PV Adj are the answer's, and the command does not complete before it), with the view's
 `priceWaits` and the line's reading; a PV01 still pending past the bound refused (`CellPending`) with nothing
-submitted; a case's own PV01 (`vary DRAFT-1 notional 2bn`) waited on by the plan while the view does not say it; and
-in the browser, the button disabled with the server's sentence on its title and the status line, and back once it has
-answered. The three tests that priced a pending PV01 to see XVA refused now price a failed one, and one prices again
-after `pv01 retry` (`A_retried_price_is_the_same_run_after_a_pv01_answered`).
+submitted; two cases' own PV01s (`vary DRAFT-1 notional 2bn, 3bn`) waited on by the plan, the line naming the first
+and counting the other, while the view does not say them; Price waiting on its own PV01 alone while another
+workspace's never answers; a Price cancelled while it waits submitting nothing, and another request with its key
+pricing once the PV01 answers; a PV01 the engine does not answer in its time failing, the engine told to stop, XVA
+refused by name and the rest priced; over HTTP, the plan and the command door both answering a Price still waiting
+409, `retryable`, with no Run made; and in the browser, the button disabled with the server's sentence on its title
+and the status line, and back once it has answered, and the Rates button disabled with its reason until the market
+is read. The three tests that priced a pending PV01 to see XVA refused now
+price a failed one, and one prices again after `pv01 retry` (`A_retried_price_is_the_same_run_after_a_pv01_answered`).
 
-By hand, in the built client served by a host whose PV01 answers after 8 s: SCREENS_BY_HAND.
+By hand, in the built client served by a host whose PV01 answers after 20 s: the disabled button and the status line
+at 1440px in both themes and at 390px in both themes, none scrolling sideways; the line's reading in both themes; the
+button back once the PV01 answered; and the Rates page's Price disabled while its market read was held back. No
+console warning or error was logged.
 
 ### Providers
 
-Unchanged: every source and every measure is simulated, and every value is synthetic.
+Unchanged: every source and every measure is simulated, and every value is synthetic. The PV01 timeout is a real
+behaviour of the provider whichever engine it wraps; only the engine is simulated.
 
 ### Known limits
 
 - **The button does not wait on a case's own cell**, which the view does not carry; the press does, within the bound.
-- **The bound is a time.** A calculation slower than 10 s refuses the command, which says so and can be repeated; a
-  wait that never ends was not taken. It is configurable, and nothing measures a real engine yet.
+- **The bound is a time.** A calculation slower than 10 s refuses the command, which says so and can be repeated. Both
+  times are configurable, and nothing measures a real engine yet.
+- **A PV01 that timed out stays failed** until `pv01 retry`, as one the engine refused does; an answer the engine
+  sends later is not taken.
 - **A Price running while the input changes** is not built: whether to ask before stopping it, or to offer another
   panel, waits for the owner's answer (no Run can be stopped today).
+
+### What the review changed
+
+The code review (both axes) found that Price waited on every PV01 the server had ever asked, so another workspace's
+slow one held it its full time; that a PV01 the engine never answered held every Price for good; that the command
+door answered the refusal 422, unlike the plan's 409; that a joined request inherited another's cancellation; that the
+wait's setting was not checked, the time it said was not always the time waited, and a timed-out wait was not logged;
+and a Japanese quote in a code comment. Each is fixed above. The Rates page's Price was found to ignore its market
+loading, and now waits for it.
 
 ## Rates lines named in order (ADR-0016 note 65, 2026-11-14)
 

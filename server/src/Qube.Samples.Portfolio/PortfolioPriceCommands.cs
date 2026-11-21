@@ -175,7 +175,7 @@ public sealed class PortfolioPriceCommand(Func<PortfolioWorkspaces> workspaces) 
         }
         catch (WorkspaceRefused pending) when (pending.Code == PortfolioInput.CellPending)
         {
-            return $"{pending.Message} Enter waits for it to finish, then prices as one Run.";
+            return $"{pending.Message} Enter waits for the calculation to finish, then prices as one Run.";
         }
     }
 
@@ -187,7 +187,7 @@ public sealed class PortfolioPriceCommand(Func<PortfolioWorkspaces> workspaces) 
             var id = CommandRequests.Text(request, "workspaceId");
             // Price waits for a cell still being calculated (ADR-0010 §6's note of 2026-11-21); a Price refused for one
             // submitted nothing, so the key is asked once more as it was.
-            var run = CommandRequests.Accepted(await service.WhenAnswered(
+            var run = CommandRequests.Accepted(await service.WhenAnswered(id, revision,
                 () => CommandRequests.Naming(() => service.Price(id, revision, caller.UserId, CommandRequests.Key(invocation, "Price"), caller.Origin)), cancellationToken));
             return new JsonObject { ["workspaceId"] = id, ["revision"] = revision, ["said"] = $"Price was accepted as Run {run.RunId}.", ["runId"] = run.RunId };
         });

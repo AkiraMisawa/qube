@@ -148,7 +148,7 @@ public class PricerSettingsTests
     {
         // A PV01 that failed leaves the PV Adj unknown; one still being calculated is waited for (ADR-0010 §6's note of 2026-11-21).
         var down = true;
-        var pv01 = new Pv01Provider((_, _) => down ? Task.FromException<decimal>(new InvalidOperationException("The engine is down.")) : Task.FromResult(-1_500m), atOnce: true);
+        var pv01 = new Pv01Provider((_, _) => down ? Task.FromException<decimal>(new InvalidOperationException("The engine is down.")) : Task.FromResult(-1_500m), onReaderThread: true);
         var (service, runs, store) = Priced(pv01);
         var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
         ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva fva").State;

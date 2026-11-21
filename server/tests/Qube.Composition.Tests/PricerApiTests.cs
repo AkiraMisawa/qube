@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.AspNetCore.Hosting;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 
@@ -186,6 +187,36 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         var refused = await client.GetAsync($"/api/xva/workspaces/{Id(now)}/price-plan?revision={Revision(now)}");
         Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
         Assert.Contains("AdditionSetChanged", await refused.Content.ReadAsStringAsync());
+    }
+
+    [Fact] // ADR-0010 §6's note of 2026-11-21: a PV01 still being calculated once Price has waited its time refuses the plan and Price alike as a conflict the same request may be made again on, through the page's door and the command door
+    public async Task Price_and_its_plan_still_waiting_are_refused_as_a_conflict_to_retry()
+    {
+        // The PV01 engine answers long after Price's wait has run out.
+        using var host = new QubeFactory();
+        using var waiting = host.WithWebHostBuilder(b => b.UseSetting("Xva:Pv01DelayMilliseconds", "600000").UseSetting("Portfolio:CellWaitMilliseconds", "100"));
+        var http = waiting.CreateClient();
+        var response = await http.PostAsJsonAsync("/api/xva/workspaces", new { registration = "ABC/LE-01", valueDate = "2026-10-26", portfolioSize = 10 });
+        var ws = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
+        _ = await http.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Id(ws)}");
+
+        var plan = await http.GetAsync($"/api/xva/workspaces/{Id(ws)}/price-plan?revision={Revision(ws)}");
+        var price = await http.PostAsJsonAsync("/api/commands/xva.workspace.price/1.0.0", new
+        {
+            inputs = new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = Id(ws), ["revision"] = Revision(ws) } },
+            idempotencyKey = Guid.NewGuid().ToString(),
+        });
+
+        foreach (var refused in new[] { plan, price })
+        {
+            Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+            var envelope = (await refused.Content.ReadFromJsonAsync<JsonObject>())!;
+            Assert.Equal(("CellPending", true), (envelope["code"]!.GetValue<string>(), envelope["retryable"]!.GetValue<bool>()));
+            Assert.Equal("PV01 of DRAFT-1, DRAFT-2 and DRAFT-3 are still being calculated. Price waited 0.1 s for the calculation: price again once it has finished.",
+                envelope["message"]!.GetValue<string>());
+        }
+        var runs = (await http.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Id(ws)}"))!["runs"]!.AsArray();
+        Assert.Empty(runs);
     }
 
     [Fact] // docs/03 §5, ADR-0010 §3's note of 2026-11-08: add each over HTTP makes the set, and Price refuses a set the ticked rows left

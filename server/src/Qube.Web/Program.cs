@@ -115,8 +115,9 @@ builder.Services.AddSingleton(sp => new WorkspaceService(
 builder.Services.AddSingleton<IWorkspaceObserver>(sp => new RatesLiveObserver(sp.GetRequiredService<RatesLiveService>(), conventions, sp.GetRequiredService<IRatesPricingProvider>()));
 // New trades' PV01 (ADR-0010 §6) comes from the simulated engine, which answers after a configured delay as an engine
 // would; there is no real one to fall back from.
+// One that has not answered within Xva:Pv01TimeoutMilliseconds has failed, saying so (ADR-0010 §6's note of 2026-11-21).
 builder.Services.AddSingleton(sp => Pv01Provider.Simulated(TimeSpan.FromMilliseconds(builder.Configuration.GetValue("Xva:Pv01DelayMilliseconds", 400)),
-    sp.GetRequiredService<TimeProvider>()));
+    sp.GetRequiredService<TimeProvider>(), TimeSpan.FromMilliseconds(builder.Configuration.GetValue("Xva:Pv01TimeoutMilliseconds", Pv01Provider.DefaultTimeout.TotalMilliseconds))));
 builder.Services.AddSingleton<IMeasureModule, XvaMeasures>();
 // Spot CCR capital (ADR-0013), priced by XVA's request with KVA on. κ is configuration: 8% unless Ccr:CapitalRatio says.
 builder.Services.AddSingleton<IMeasureModule>(_ => new CcrMeasures(builder.Configuration["Ccr:CapitalRatio"] is { } ratio

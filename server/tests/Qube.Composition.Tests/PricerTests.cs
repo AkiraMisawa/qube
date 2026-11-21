@@ -469,7 +469,7 @@ public class PricerTests
     {
         // A PV01 still being calculated is waited for, never priced (ADR-0010 §6's note of 2026-11-21): one that failed
         // is what leaves a PV Adj unknown at Price.
-        var (service, runs, store, _) = Priced(new XvaMeasures(new Pv01Provider((_, _) => Task.FromException<decimal>(new InvalidOperationException("The engine is down.")), atOnce: true)));
+        var (service, runs, store, _) = Priced(new XvaMeasures(new Pv01Provider((_, _) => Task.FromException<decimal>(new InvalidOperationException("The engine is down.")), onReaderThread: true)));
         var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
         ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-2", "xva.margin", 2m);
 
@@ -489,7 +489,7 @@ public class PricerTests
     {
         // A PV01 that failed, then answered when asked again: a PV01 still being calculated is waited for, not priced.
         var down = true;
-        var pv01 = new Pv01Provider((_, _) => down ? Task.FromException<decimal>(new InvalidOperationException("The engine is down.")) : Task.FromResult(-1_500m), atOnce: true);
+        var pv01 = new Pv01Provider((_, _) => down ? Task.FromException<decimal>(new InvalidOperationException("The engine is down.")) : Task.FromResult(-1_500m), onReaderThread: true);
         var (service, runs, _, _) = Priced(new XvaMeasures(pv01));
         var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
         Assert.Equal(TradeCell.Failed, Cell(service, ws, "DRAFT-1", XvaMeasures.Pv01).State);

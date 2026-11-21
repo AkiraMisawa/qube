@@ -123,7 +123,11 @@ public static class XvaApi
         // here and at the press, rather than listed or priced unseen.
         // It waits, as Price does, for a cell still being calculated (ADR-0010 §6's note of 2026-11-21).
         ws.MapGet("/{id}/price-plan", (string id, long? revision, CurrentUser user, PortfolioWorkspaces service, CancellationToken cancellationToken) =>
-            Guard(async () => Results.Ok(await service.WhenAnswered(() => service.PlanPrice(id, Read(revision), user.Id), cancellationToken))));
+            Guard(async () =>
+            {
+                var at = Read(revision);
+                return Results.Ok(await service.WhenAnswered(id, at, () => service.PlanPrice(id, at, user.Id), cancellationToken));
+            }));
 
         ws.MapDelete("/{id}", (string id, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
@@ -171,7 +175,9 @@ public static class XvaApi
             "RevisionMoved" or "ConfirmationStale" or "UnresolvedEdits" or "ConflictUnresolved" or "RunRunning" or PortfolioInput.CellPending => 409,
             _ => 422,
         };
-        return Results.Json(new Api.ErrorEnvelope(refused.Code, refused.Message, issues), statusCode: status);
+        // A conflict is the state the request met, so the same request may be made again once it has moved, as the
+        // command door says it (Api.DoorStatus).
+        return Results.Json(new Api.ErrorEnvelope(refused.Code, refused.Message, issues, Retryable: status == 409), statusCode: status);
     }
 }
 

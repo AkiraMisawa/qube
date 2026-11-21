@@ -5,6 +5,8 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Saved;
 using Qube.Composition.Application.Products;
@@ -159,6 +161,10 @@ public sealed record PortfolioOptions(int CaseCap = PortfolioCases.DefaultCap, i
 {
     /// <summary>Ten seconds: twenty-five times what the simulated PV01 engine takes, and still a wait a user sits through.</summary>
     public const int DefaultCellWaitMilliseconds = 10_000;
+
+    /// <summary>A positive number of milliseconds; anything else is refused where the options are made, never read as no wait or as no end.</summary>
+    public int CellWaitMilliseconds { get; } = CellWaitMilliseconds > 0 ? CellWaitMilliseconds
+        : throw new ArgumentOutOfRangeException(nameof(CellWaitMilliseconds), CellWaitMilliseconds, "Portfolio:CellWaitMilliseconds is a positive number of milliseconds.");
 }
 
 /// <summary>A Run this workspace submitted (its latest twenty, newest first).</summary>
@@ -176,11 +182,15 @@ public sealed record ScopeDrop(string Scope, int Count, IReadOnlyDictionary<stri
 /// kernel stores and checks the edits. The user is passed in; who may act is decided before this is called.
 /// </summary>
 /// <param name="settings">The users' settings, whose display currency a new workspace starts in (ADR-0017 §3).</param>
+/// <param name="time">The clock Price's wait for a cell still being calculated is timed on (ADR-0010 §6's note of 2026-11-21).</param>
+/// <param name="logger">Where a wait that ran out is logged, with the workspace, the revision and what it waited on.</param>
 public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs, MeasureRegister register, UserSettings settings,
-    PortfolioOptions? options = null, SavedItems? saved = null)
+    PortfolioOptions? options = null, SavedItems? saved = null, TimeProvider? time = null, ILogger<PortfolioWorkspaces>? logger = null)
 {
     readonly int caseCap = (options ?? new PortfolioOptions()).CaseCap;
     readonly TimeSpan cellWait = TimeSpan.FromMilliseconds((options ?? new PortfolioOptions()).CellWaitMilliseconds);
+    readonly TimeProvider clock = time ?? TimeProvider.System;
+    readonly ILogger log = logger ?? NullLogger<PortfolioWorkspaces>.Instance;
     readonly PortfolioChecks checks = new(register);
 
     // The pricer's tables as the kernel reads them, for a page read under a grid's conditions (ADR-0016 note 41 of step 4).
@@ -276,7 +286,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
             pending.Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
             // What Price would wait on in the Base, read from the same cells (Price reads each case's own).
-            register.Waiting([.. pending.Where(t => t.Before || t.After)]) is { } waits ? $"{waits} Price waits for the calculation to finish." : null,
+            register.Pending(state, [.. pending.Where(t => t.Before || t.After)]) is { } waits ? $"{waits.Says} Price waits for the calculation to finish." : null,
             PortfolioMaterialiser.DisplayCurrency(state), PortfolioMaterialiser.DisplayCurrencyFrom(state), PortfolioMaterialiser.Project(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
             PortfolioCases.All(raw), DataEdits(raw).Count() + PortfolioLegs.Made(raw).Count + BookedTrades.LoadedBy(raw).Count, PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw), register.Settings(state),
             // The packages the Package cells write, and the name the next is given where none is (ADR-0016 notes 90 and 93):
@@ -1086,27 +1096,47 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     /// <summary>
     /// What <paramref name="read"/> answers once the cells it reads have been calculated (ADR-0010 §6's note of 2026-11-21;
     /// the owner: Price is not pressed while data is loading). Where it is refused because a cell is still being
-    /// calculated, such as a PV01 the engine has not answered, it waits for every cell asked for so far, the configured
-    /// time at most, and reads once more; a cell still being calculated then refuses it with how long it waited. Price
-    /// and its plan wait through it, so the button, the line, the AI and a saved sequence wait alike.
+    /// calculated, such as a PV01 the engine has not answered, it waits for those cells alone, and reads again, until
+    /// the configured time has run out: a cell still being calculated then refuses it with how long it waited, and the
+    /// wait is logged. Price and its plan wait through it, so the button, the line, the AI and a saved sequence wait
+    /// alike. A cancelled request stops waiting, and reads nothing more.
     /// </summary>
-    public async Task<T> WhenAnswered<T>(Func<T> read, CancellationToken cancellationToken)
+    public async Task<T> WhenAnswered<T>(string workspaceId, long revision, Func<T> read, CancellationToken cancellationToken)
+    {
+        var started = clock.GetTimestamp();
+        while (true)
+        {
+            WorkspaceRefused pending;
+            try
+            {
+                return read();
+            }
+            catch (WorkspaceRefused refused) when (refused.Code == PortfolioInput.CellPending)
+            {
+                pending = refused;
+            }
+            var settles = pending.Settles ?? throw new InvalidOperationException("A refusal for a cell still being calculated says when it is answered.");
+            var left = cellWait - clock.GetElapsedTime(started);
+            if (left <= TimeSpan.Zero || !await Settled(settles, left, cancellationToken))
+            {
+                log.LogWarning("Price waited {WaitSeconds} s on workspace {WorkspaceId} at revision {Revision} and was refused: {Pending}",
+                    cellWait.TotalSeconds, workspaceId, revision, pending.Message);
+                throw new WorkspaceRefused(pending.Code, $"{pending.Message} Price waited {cellWait.TotalSeconds:0.#} s for the calculation: price again once it has finished.");
+            }
+        }
+    }
+
+    // True once it has settled, false where the time ran out first.
+    async Task<bool> Settled(Task settles, TimeSpan left, CancellationToken cancellationToken)
     {
         try
         {
-            return read();
+            await settles.WaitAsync(left, clock, cancellationToken);
+            return true;
         }
-        catch (WorkspaceRefused pending) when (pending.Code == PortfolioInput.CellPending)
+        catch (TimeoutException)
         {
-            await register.Answered(cellWait, cancellationToken);
-        }
-        try
-        {
-            return read();
-        }
-        catch (WorkspaceRefused still) when (still.Code == PortfolioInput.CellPending)
-        {
-            throw new WorkspaceRefused(still.Code, $"{still.Message} Price waited {cellWait.TotalSeconds:0.#} s for it: price again once it has finished.");
+            return false;
         }
     }
 
