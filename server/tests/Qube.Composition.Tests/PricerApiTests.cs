@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
+using Qube.Samples.Portfolio;
 
 namespace Qube.Composition.Tests;
 
@@ -218,6 +219,35 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal(["xva", "xva", "xva", "xva", "simm"], measures.Select(m => m["request"]!.GetValue<string>()));
         Assert.Equal(["cva", "cvaCharge", "pv"], measures[0]["metrics"]!.AsArray().Select(m => m!["id"]!.GetValue<string>()));
         Assert.All(Strings(ws["selectedMeasures"]), m => Assert.Contains(m, measures.Select(r => r["id"]!.GetValue<string>())));
+    }
+
+    [Fact] // ADR-0010 §7's note of 2026-11-21: CVA Charge is shown by its Diff alone, and every other metric by Before, After and Diff
+    public async Task CVA_Charge_alone_is_registered_to_be_shown_by_its_Diff_under_a_two_tier_heading()
+    {
+        var ws = await Create();
+
+        var diffOnly = ws["measures"]!.AsArray().SelectMany(m => m!["metrics"]!.AsArray()
+            .Select(metric => ($"{m["id"]!.GetValue<string>()}.{metric!["id"]!.GetValue<string>()}", metric["diffOnly"]!.GetValue<bool>()))).ToList();
+
+        Assert.Equal(["cva.cvaCharge"], diffOnly.Where(m => m.Item2).Select(m => m.Item1));
+        Assert.Contains(("cva.cva", false), diffOnly);
+        Assert.Contains(("cva.pv", false), diffOnly);
+        // Its one column is headed in two tiers, and no Diff (the owner's second answer of 2026-11-21).
+        var charge = ws["measures"]!.AsArray()[0]!["metrics"]!.AsArray().Single(m => m!["id"]!.GetValue<string>() == "cvaCharge")!;
+        Assert.Equal(["CVA charge", "or rebate"], charge["heading"]!.AsArray().Select(l => l!.GetValue<string>()));
+        Assert.All(ws["measures"]!.AsArray().SelectMany(m => m!["metrics"]!.AsArray()).Where(m => m!["id"]!.GetValue<string>() != "cvaCharge"),
+            m => Assert.Null(m!["heading"]));
+    }
+
+    [Theory] // ADR-0010 §7's note of 2026-11-21, spine 1: a heading a metric cannot be headed by is refused where it is registered, saying why
+    [InlineData(false, new[] { "CVA charge", "or rebate" }, "Metric cvaCharge has a heading but is not shown by its Diff alone")]
+    [InlineData(true, new string[0], "Metric cvaCharge's heading has no line.")]
+    [InlineData(true, new[] { "CVA charge", " " }, "Metric cvaCharge's heading has a blank line.")]
+    public void A_heading_is_refused_on_a_metric_not_shown_by_its_Diff_alone_or_with_no_line_or_a_blank_one(bool diffOnly, string[] heading, string why)
+    {
+        var refused = Assert.Throws<ArgumentException>(() => new MetricDefinition("cvaCharge", "CVA Charge", DiffOnly: diffOnly, Heading: heading));
+
+        Assert.StartsWith(why, refused.Message);
     }
 
     [Fact] // ADR-0010 §7, §10, ADR-0012 §7: a measure registers its result tabs beside Metrics, as spot IM's SIMM and spot capital's CCR, drawn as a trace

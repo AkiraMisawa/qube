@@ -352,9 +352,16 @@ export interface ScenarioView {
   readonly issue?: string | null;
 }
 
-/** One figure a measure reports, such as CVA's CVA Charge, and the trace term its cell opens where it is not the root
- * (ADR-0010 §7's note of 2026-11-08: spot IM's IM-R opens at `collect`). */
-export interface MetricDefinition { readonly id: string; readonly title: string; readonly term?: string | null }
+/** One figure a measure reports, such as CVA's CVA Charge, the trace term its cell opens where it is not the root
+ * (ADR-0010 §7's note of 2026-11-08: spot IM's IM-R opens at `collect`), and whether the dock shows it by its Diff alone,
+ * as CVA Charge, with the heading of that one column, a line a tier (§7's note of 2026-11-21). */
+export interface MetricDefinition {
+  readonly id: string;
+  readonly title: string;
+  readonly term?: string | null;
+  readonly diffOnly: boolean;
+  readonly heading?: readonly string[] | null;
+}
 
 /** A measure as its module registered it (ADR-0010 §10). The page knows no measure's rules; it reads these. */
 export interface RegisteredMeasure {

@@ -7,10 +7,11 @@ import { partHeight } from './layout';
 import { useDatasets, useRun } from '../../platform/workspace/WorkspaceProvider';
 import type { RegisteredMeasure } from './contracts';
 import { conversionOf, dockTabs, METRICS_TAB, unpricedReasons, type MeasureTab } from './dock';
-import { BASE_MARKET, headlines, inMarket, marketsOf, metricsGrid, metricsTable, pricedMeasures, reasons, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
+import { BASE_MARKET, columnLabel, headlines, inMarket, marketsOf, metricsGrid, metricsTable, pricedMeasures, reasons, shownCell, SIDE_TITLES, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
 
 // The latest Price's Metrics, on the workspace page itself (ADR-0010 §7): a row per case, per priced measure Before,
-// After and Diff. They are read from the Run's retained results, never recomputed here, and say what they are:
+// After and Diff, or the Diff alone under its own heading for a metric registered so, as CVA Charge (§7's note of
+// 2026-11-21). They are read from the Run's retained results, never recomputed here, and say what they are:
 // simulated, of which revision, and whether the workspace has moved on since. Each module's figures show as its
 // request answers, and a failed request leaves only its own measures unavailable (§10). Collapsed, the dock is its
 // header and one line a case with each measure's headline Diff (§7). A Run that priced scenarios shows one market at a
@@ -95,11 +96,6 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
   const simulated = datasets.some((d) => d.data?.provenance.executionMode === 'simulated');
   const counts = table === undefined ? [] : tradeCounts(table);
   const behind = pricedRevision !== undefined && pricedRevision < revision;
-  const sides = [
-    ...(table?.sides.before === true ? [['before', 'Before'] as const] : []),
-    ...(table?.sides.after === true ? [['after', 'After'] as const] : []),
-    ...(table?.sides.before === true && table.sides.after ? [['diff', 'Diff'] as const] : []),
-  ];
   const lines = table === undefined ? [] : headlines(register, table);
   // The Run's cases, for a measure's tab to draw one of (ADR-0010 §7): a case another Run made is not this one's.
   const cases = (grid?.rows ?? []).filter((r) => r.key !== '');
@@ -201,11 +197,16 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th rowSpan={2}>Case</Table.Th>
-                    {grid.columns.map((c) => <Table.Th key={c.key} colSpan={sides.length} className="qube-xva-result-group">{c.metricTitle}</Table.Th>)}
+                    {/* A heading stands in both rows of the header, a line a tier, over its one column (§7's note of 2026-11-21). */}
+                    {grid.columns.map((c) => (c.heading === undefined
+                      ? <Table.Th key={c.key} colSpan={c.sides.length} className="qube-xva-result-group">{c.metricTitle}</Table.Th>
+                      : <Table.Th key={c.key} rowSpan={2} className="qube-number" aria-label={columnLabel(c, 'diff')} data-testid="xva-result-heading">
+                        {c.heading.map((l, i) => <span key={i} className="qube-xva-result-heading-line">{l}</span>)}
+                      </Table.Th>))}
                   </Table.Tr>
                   <Table.Tr>
-                    {grid.columns.flatMap((c) => sides.map(([side, title]) => (
-                      <Table.Th key={`${c.key}.${side}`} className="qube-number" aria-label={`${c.metricTitle} ${title}`}>{title}</Table.Th>
+                    {grid.columns.filter((c) => c.heading === undefined).flatMap((c) => c.sides.map((side) => (
+                      <Table.Th key={`${c.key}.${side}`} className="qube-number" aria-label={columnLabel(c, side)}>{SIDE_TITLES[side]}</Table.Th>
                     )))}
                   </Table.Tr>
                 </Table.Thead>
@@ -213,13 +214,14 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
                   {grid.rows.map((row) => (
                     <Table.Tr key={row.key}>
                       <Table.Th scope="row">{row.title}</Table.Th>
-                      {grid.columns.flatMap((c) => sides.map(([side, title]) => {
+                      {grid.columns.flatMap((c) => c.sides.map((side) => {
                         const line = row.cells[c.key];
                         // A measure that keeps a trace opens it from each of its figures of a case, once the Run has finished
                         // (ADR-0010 §7); a line of no case is one whose module gave no rows, and has no trace to open.
                         const caseId = line?.case;
                         const traced = status !== 'running' && caseId !== undefined && register.find((m) => m.id === line!.measure)?.traced === true;
-                        return <Figure key={`${c.key}.${side}`} cell={line?.[side]} line={line} label={`${c.metricTitle} ${title}`}
+                        const cell = line === undefined ? undefined : shownCell(line, side);
+                        return <Figure key={`${c.key}.${side}`} cell={cell} line={line} label={columnLabel(c, side)}
                           {...(traced ? { onTrace: () => onTrace(line!.measure, caseId, market.key, line!.term) } : {})} />;
                       }))}
                     </Table.Tr>

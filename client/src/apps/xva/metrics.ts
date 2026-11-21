@@ -4,7 +4,9 @@ import type { RegisteredMeasure } from './contracts';
 // The Metrics dock as a reading of the Run (ADR-0010 §7, §10): a line per case and measure metric with Before, After
 // and Diff. The figures come from the Run's retained results, never from the screen, and where there is no figure the
 // cell says why in words: `not priced` (nothing failed, the side had no trade), `unavailable` (a request failed),
-// `refused` (Price blocked the measure, with its reason). Never 0 for any of them.
+// `refused` (Price blocked the measure, with its reason). Never 0 for any of them. A metric its measure registers as
+// shown by its Diff alone, as CVA's CVA Charge, is one column of the dock; the Run still holds both of its sides
+// (§7's note of 2026-11-21).
 
 export type CellStatus = 'priced' | 'notPriced' | 'unavailable' | 'refused' | 'pending';
 
@@ -44,7 +46,16 @@ export interface MetricLine {
   readonly conversion: string | undefined;
   /** The trace term the line's cells open, where it is not the root: spot IM's IM-R opens at `collect`. */
   readonly term: string | undefined;
+  /** Whether the dock shows the metric by its Diff alone, as its registration says (ADR-0010 §7's note of 2026-11-21). */
+  readonly diffOnly: boolean;
+  /** The heading of that one column, a line a tier, where the registration gives one: `CVA charge` over `or rebate`. */
+  readonly heading: readonly string[] | undefined;
 }
+
+/** A column of a metric's group in the dock: one side, or the Diff. */
+export type ResultSide = 'before' | 'after' | 'diff';
+
+export const SIDE_TITLES: Readonly<Record<ResultSide, string>> = { before: 'Before', after: 'After', diff: 'Diff' };
 
 export interface MetricsTable {
   readonly lines: readonly MetricLine[];
@@ -93,8 +104,16 @@ export function diffOf(before: MetricCell, after: MetricCell, value: unknown): M
 const text = (v: unknown) => (typeof v === 'string' && v !== '' ? v : undefined);
 
 /** The trace term a metric's cells open, where its registration names one; none opens the trace at its root. */
-const termOf = (measure: RegisteredMeasure | undefined, metric: string): string | undefined =>
-  text(measure?.metrics.find((m) => m.id === metric)?.term);
+/**
+ * How a line shows its metric, as the registration says: the trace term its cells open; whether it is shown by its Diff
+ * alone, which a metric the register no longer knows is not; and that column's heading, which the server refuses where
+ * it is not a Diff-only metric's, or has no line or a blank one, so it is drawn as it comes.
+ */
+const presentationOf = (measure: RegisteredMeasure | undefined, metric: string): Pick<MetricLine, 'term' | 'diffOnly' | 'heading'> => {
+  const definition = measure?.metrics.find((m) => m.id === metric);
+  const diffOnly = definition?.diffOnly === true;
+  return { term: text(definition?.term), diffOnly, heading: diffOnly ? definition?.heading ?? undefined : undefined };
+};
 const count = (v: unknown) => (typeof v === 'number' ? v : undefined);
 
 /**
@@ -107,7 +126,7 @@ export function metricsTable(register: readonly RegisteredMeasure[], priced: rea
   const blank = (measure: string, measureTitle: string, metric: string, metricTitle: string, cell: MetricCell, reason: string | undefined): MetricLine => ({
     key: `${measure}.${metric}`, case: undefined, caseTitle: undefined, scenario: undefined, scenarioTitle: undefined, measure, measureTitle, metric, metricTitle, currency: undefined,
     before: cell, after: cell, diff: cell, tradesBefore: undefined, tradesAfter: undefined, reason, basis: undefined, conversion: undefined,
-    term: termOf(register.find((m) => m.id === measure), metric),
+    ...presentationOf(register.find((m) => m.id === measure), metric),
   });
 
   for (const id of priced) {
@@ -132,7 +151,7 @@ export function metricsTable(register: readonly RegisteredMeasure[], priced: rea
         scenario, scenarioTitle: text(row.scenarioTitle) ?? BASE_MARKET.title, measure: measure.id, measureTitle: measure.title,
         metric, metricTitle: String(row.metricTitle), currency: text(row.currency), before, after, diff: diffOf(before, after, row.diff),
         tradesBefore: count(row.tradesBefore), tradesAfter: count(row.tradesAfter), reason: text(row.reason), basis: text(row.basis), conversion: text(row.conversion),
-        term: termOf(measure, metric),
+        ...presentationOf(measure, metric),
       });
     }
   }
@@ -174,18 +193,49 @@ export function inMarket(table: MetricsTable, scenario: string): MetricsTable {
 
 export interface MetricsGrid {
   /** A column group per measure metric, in the lines' order. */
-  readonly columns: readonly { readonly key: string; readonly measureTitle: string; readonly metricTitle: string }[];
+  readonly columns: readonly MetricsColumn[];
   /** A row per case (ADR-0010 §7), each with its line per column; a line of no case stands in every row. */
   readonly rows: readonly { readonly key: string; readonly title: string; readonly cells: Readonly<Record<string, MetricLine>> }[];
 }
 
+/**
+ * A measure metric's column group, with the sides it draws: those the table draws (§7), or for a metric shown by its Diff
+ * alone its one column, which names a side in its cell where a case has no Diff, the table's other sides included. A
+ * heading, where that metric registers one, heads that column in tiers, in place of its title over `Diff` (§7's note of
+ * 2026-11-21).
+ */
+export interface MetricsColumn {
+  readonly key: string;
+  readonly measureTitle: string;
+  readonly metricTitle: string;
+  readonly sides: readonly ResultSide[];
+  readonly heading: readonly string[] | undefined;
+}
+
+/** What names a column's cell, for its header and a screen reader: its heading, or its title and side. */
+export const columnLabel = (column: MetricsColumn, side: ResultSide): string =>
+  column.heading?.join(' ') ?? `${column.metricTitle} ${SIDE_TITLES[side]}`;
+
 const columnKey = (line: MetricLine) => `${line.measure}.${line.metric}`;
+
+/** The sides the table draws (ADR-0010 §7): each side some line has something to say on, and the Diff where both are. */
+function drawnSides(table: MetricsTable): readonly ResultSide[] {
+  return [
+    ...(table.sides.before ? ['before' as const] : []),
+    ...(table.sides.after ? ['after' as const] : []),
+    ...(table.sides.before && table.sides.after ? ['diff' as const] : []),
+  ];
+}
 
 /** The dock's grid: a row per case, a column group per measure metric. */
 export function metricsGrid(table: MetricsTable): MetricsGrid {
-  const columns = new Map<string, MetricsGrid['columns'][number]>();
+  const drawn = drawnSides(table);
+  const columns = new Map<string, MetricsColumn>();
   for (const line of table.lines)
-    if (!columns.has(columnKey(line))) columns.set(columnKey(line), { key: columnKey(line), measureTitle: line.measureTitle, metricTitle: line.metricTitle });
+    if (!columns.has(columnKey(line))) columns.set(columnKey(line), {
+      key: columnKey(line), measureTitle: line.measureTitle, metricTitle: line.metricTitle,
+      sides: line.diffOnly ? ['diff'] : drawn, heading: line.heading,
+    });
   const cases = new Map<string, string>();
   for (const line of table.lines) if (line.case !== undefined && !cases.has(line.case)) cases.set(line.case, line.caseTitle ?? line.case);
   // Until a module answers there is no case to name; its lines stand for all of them.
@@ -196,6 +246,34 @@ export function metricsGrid(table: MetricsTable): MetricsGrid {
     return { key, title, cells };
   });
   return { columns: [...columns.values()], rows };
+}
+
+const NOT_PRICED: MetricCell = { text: 'not priced', status: 'notPriced' };
+
+/**
+ * What a case adds of a metric (ADR-0010 §7): its Diff; where the case is one-sided, its priced side, named; where
+ * there is no figure, the word of a side that says why (`refused`, `unavailable`, `…`), else `not priced`. Never 0 and
+ * never blank. The collapsed line and a metric shown by its Diff alone read it; Copy quote holds the same rule on the
+ * server (XvaQuote), where it reads the Run alone.
+ */
+export function caseAdds(line: MetricLine): { readonly side: ResultSide | undefined; readonly cell: MetricCell } {
+  if (line.diff.status === 'priced') return { side: 'diff', cell: line.diff };
+  if (line.after.status === 'priced' && line.before.status === 'notPriced') return { side: 'after', cell: line.after };
+  if (line.before.status === 'priced' && line.after.status === 'notPriced') return { side: 'before', cell: line.before };
+  return { side: undefined, cell: [line.diff, line.after, line.before].find((c) => c.status !== 'priced' && c.status !== 'notPriced') ?? NOT_PRICED };
+}
+
+/**
+ * What a column of a metric's group shows of a line: the side as the line holds it, or, in the one column of a metric
+ * shown by its Diff alone, what the case adds, its side named beside the figure where that is not the Diff (ADR-0010
+ * §7's note of 2026-11-21), as the collapsed line names it.
+ */
+export function shownCell(line: MetricLine, side: ResultSide): MetricCell {
+  if (side !== 'diff' || !line.diffOnly) return line[side];
+  const added = caseAdds(line);
+  if (added.side === undefined || added.side === 'diff') return added.cell;
+  const named = SIDE_TITLES[added.side];
+  return { ...added.cell, note: added.cell.note === undefined ? named : `${named} ${added.cell.note}` };
 }
 
 /**
@@ -209,11 +287,8 @@ export function headlines(register: readonly RegisteredMeasure[], table: Metrics
     const parts = register.flatMap((measure) => {
       const line = row.cells[`${measure.id}.${measure.headline}`];
       if (line === undefined) return [];
-      if (line.diff.status === 'priced') return [`${line.metricTitle} Diff ${line.diff.text}`];
-      if (line.after.status === 'priced' && line.before.status === 'notPriced') return [`${line.metricTitle} After ${line.after.text}`];
-      if (line.before.status === 'priced' && line.after.status === 'notPriced') return [`${line.metricTitle} Before ${line.before.text}`];
-      const word = [line.diff, line.after, line.before].find((c) => c.status !== 'priced' && c.status !== 'notPriced') ?? line.diff;
-      return [`${line.metricTitle} ${word.text === '' ? 'not priced' : word.text}`];
+      const added = caseAdds(line);
+      return [added.side === undefined ? `${line.metricTitle} ${added.cell.text}` : `${line.metricTitle} ${SIDE_TITLES[added.side]} ${added.cell.text}`];
     });
     return { key: row.key, text: [row.title, ...parts].join(' · ') };
   });
