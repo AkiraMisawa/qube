@@ -463,7 +463,10 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
         {ADDED_PRODUCTS.map((product) => (
           <Button key={product} size="xs" variant="default" onClick={() => void enter(`add line ${product}`)}>Add {product.toUpperCase()}</Button>
         ))}
-        <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={busy !== undefined && busy !== 'Pricing'}>Price</Button>
+        {/* Price is not pressed while the market it prices on is still loading (ADR-0010 §6's note of 2026-11-21, the owner:
+            always so while data is loading); the badge beside the buttons says it where a touch screen reads it. */}
+        <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={(busy !== undefined && busy !== 'Pricing') || market.data === undefined}
+          {...(market.data === undefined ? { title: market.isError ? `The market could not be read: ${describe(market.error)}` : 'The market is still loading; Price waits for it.' } : {})}>Price</Button>
         <Button size="xs" color={subscription === undefined ? 'teal' : 'red'} variant="light" data-testid="live-toggle"
           onClick={() => void enter(subscription === undefined ? 'live start' : 'live stop')}>
           {subscription !== undefined ? 'Stop live' : ws.live !== undefined && !ws.live.running ? 'Resume live' : 'Start live'}

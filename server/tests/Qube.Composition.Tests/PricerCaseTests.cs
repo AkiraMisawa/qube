@@ -352,23 +352,54 @@ public class PricerCaseTests
         }
     }
 
-    [Fact] // docs/03 §5's DEFAULT: a candidate in Before is refused by name, never unticked, and nothing is made
-    public void A_candidate_in_before_is_refused_by_name_and_nothing_is_made()
+    [Fact] // ADR-0016 note 96 (owner, 2026-11-19): a New row in Before and After, a trade booked today the source does not hold yet, is read as an existing trade: no candidate, in Before and After in every case, which each case's title says, and taken out by a package as an existing trade is
+    public async Task A_new_row_in_before_and_after_is_read_as_an_existing_trade()
     {
-        var (service, _, _) = Priced();
+        var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
-        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-2", "before", true);
+        var e = service.Page(ws.WorkspaceId, "akira", 0, 1, [], "existing").Rows[0].TradeId;
+        ws = Flag(service, ws, "DRAFT-2", "before", true);
 
-        var refused = Assert.Throws<WorkspaceRefused>(() => service.AddTrades(ws.WorkspaceId, ws.Revision, "akira"));
-        var none = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "grid:new", "after", false);
+        var alone = service.AddTrades(ws.WorkspaceId, ws.Revision, "akira");
+        var (input, _, _) = await Price(runs, store, service, alone.State);
+
+        Assert.Equal(["add DRAFT-1", "add DRAFT-3"], alone.Made);
+        var cases = PortfolioInput.Cases(input);
+        Assert.Equal(["Base", "add DRAFT-1 · with new DRAFT-2 in Before and After", "add DRAFT-3 · with new DRAFT-2 in Before and After"], cases.Select(c => c.Title));
+        Assert.All(cases, c => Assert.Equal((true, true), Sides(c, "DRAFT-2")));
+        Assert.Equal([["DRAFT-1", "DRAFT-2", "DRAFT-3"], ["DRAFT-1", "DRAFT-2"], ["DRAFT-2", "DRAFT-3"]], cases.Select(NewInAfter));
+
+        // In a package with an existing trade, it is taken out as the existing trade is: P1's case is DRAFT-1 instead of
+        // what was booked today, and does not say the change it takes out.
+        ws = Package(service, alone.State, "P1", "DRAFT-1", "DRAFT-2", e);
+        var packaged = service.AddTrades(ws.WorkspaceId, ws.Revision, "akira");
+        var (inP1, _, _) = await Price(runs, store, service, packaged.State);
+
+        Assert.Equal([$"P1: add DRAFT-1 without DRAFT-2 + {e}", "add DRAFT-3"], packaged.Made);
+        Assert.Equal([new PackageView("P1", ["DRAFT-1"], ["DRAFT-2", e])], service.View(ws.WorkspaceId, "akira").Packages, new PackageViewComparer());
+        var priced = PortfolioInput.Cases(inP1);
+        Assert.Equal(["Base", $"P1: add DRAFT-1 without DRAFT-2 + {e}", "add DRAFT-3 · with new DRAFT-2 in Before and After"], priced.Select(c => c.Title));
+        Assert.Equal([(true, true), (true, false), (true, true)], priced.Select(c => Sides(c, "DRAFT-2")));
+        Assert.Equal([(true, true), (true, false), (true, true)], priced.Select(c => Sides(c, e)));
+
+        // In a package with A clear, it is a trade After does not hold, refused as an existing one is; and with every New
+        // row in Before, no row is a candidate.
+        var cleared = Flag(service, packaged.State, "DRAFT-2", "after", false);
+        var notInAfter = Assert.Throws<WorkspaceRefused>(() => service.AddTrades(cleared.WorkspaceId, cleared.Revision, "akira"));
+        var none = Package(service, service.Edit(cleared.WorkspaceId, cleared.Revision, "akira", "grid:new", "before", true), null, "DRAFT-1", "DRAFT-2", e);
         var nothing = Assert.Throws<WorkspaceRefused>(() => service.AddTrades(none.WorkspaceId, none.Revision, "akira"));
 
-        Assert.Equal(("CandidateInBefore", "DRAFT-2 is in Before, and a new trade is priced alone only out of Before. Clear B on it, or A to leave it out, then add each again."),
-            (refused.Code, refused.Message));
-        Assert.Equal("NothingToAdd", nothing.Code);
+        Assert.Equal(("NotInAfter", "DRAFT-2 is in the package P1 and not in After in the Base, so no case takes it out. Tick A on it, or clear its Package."),
+            (notInAfter.Code, notInAfter.Message));
+        Assert.Equal(("NothingToAdd", "add each makes a case per package and per New row with A ticked and B clear, and no trade is in a package and no New row has A ticked and B clear. "
+            + "A New row in Before is read as an existing trade."), (nothing.Code, nothing.Message));
         Assert.Equal(none.Revision, service.View(none.WorkspaceId, "akira").Revision);
-        Assert.Equal(["Base"], service.View(none.WorkspaceId, "akira").Cases.Select(c => c.Title));
     }
+
+    // Where a case holds a trade, in Before and in After; a trade in neither is not in the case's input at all.
+    static (bool Before, bool After)? Sides(PricedCase @case, string id) =>
+        @case.Input["trades"]!.AsArray().SingleOrDefault(t => t!["tradeId"]!.GetValue<string>() == id) is { } trade
+            ? (trade["before"]!.GetValue<bool>(), trade["after"]!.GetValue<bool>()) : null;
 
     [Fact] // docs/03 §5, ADR-0010 §3's note of 2026-11-08: Price refuses, naming the trades, a set that no longer matches the New rows with A ticked; add each again makes it anew
     public async Task Price_refuses_a_set_the_ticked_new_rows_no_longer_match_and_add_each_makes_it_anew()
@@ -388,7 +419,8 @@ public class PricerCaseTests
 
         Assert.Equal(("AdditionSetChanged", "add each's cases are not what the Package column and A say. Missing: add DRAFT-3. Run add each again to make the set anew."),
             (ticked.Code, ticked.Message));
-        Assert.Equal(("CandidateInBefore", "DRAFT-1 is in Before, and a new trade is priced alone only out of Before. Clear B on it, or A to leave it out, then add each again."),
+        // DRAFT-1 ticked in Before is read as an existing trade from then on (ADR-0016 note 96): its case is out of date.
+        Assert.Equal(("AdditionSetChanged", "add each's cases are not what the Package column and A say. Missing: add DRAFT-3. Out of date: add DRAFT-1. Run add each again to make the set anew."),
             (before.Code, before.Message));
         Assert.Equal(["add DRAFT-1", "add DRAFT-2"], again.Replaced);
         Assert.Equal(["Base", "add DRAFT-1", "add DRAFT-2", "add DRAFT-3"], PortfolioInput.Cases(input).Select(c => c.Title));
@@ -440,11 +472,11 @@ public class PricerCaseTests
     static IReadOnlyList<string> ExistingInBefore(PricedCase @case) =>
         [.. @case.Input["trades"]!.AsArray().Where(t => !t!["isNew"]!.GetValue<bool>() && t["before"]!.GetValue<bool>()).Select(t => t!["tradeId"]!.GetValue<string>())];
 
-    // Writes a package on trades as a cell is written (ADR-0016 note 90), one edit a trade.
     /// <summary>Ticks or clears a trade's B (<c>before</c>) or A (<c>after</c>).</summary>
     static WorkspaceState Flag(PortfolioWorkspaces service, WorkspaceState state, string trade, string field, bool on) =>
         service.Edit(state.WorkspaceId, state.Revision, "akira", $"trade:{trade}", field, on);
 
+    // Writes a package on trades as a cell is written (ADR-0016 note 90), one edit a trade.
     static WorkspaceState Package(PortfolioWorkspaces service, WorkspaceState ws, string? name, params string[] trades) =>
         trades.Aggregate(ws, (at, trade) => service.Edit(at.WorkspaceId, at.Revision, "akira", $"trade:{trade}", "package", name));
 
@@ -560,8 +592,6 @@ public class PricerCaseTests
             Refused(w => Set(w, "trade:DRAFT-1", "after", false), w => Set(w, "trade:DRAFT-1", "after", true)));
         Assert.Equal("CandidateNotTicked: DRAFT-1 (P1) and DRAFT-2 (P1) are in a package and have A clear, and a package adds New rows with A ticked. Tick A on them, or clear their Package.",
             Refused(w => Set(w, "grid:new", "after", false), w => Set(w, "grid:new", "after", true)));
-        Assert.Equal("CandidateInBefore: DRAFT-2 is in Before, and add each adds a new trade only out of Before. Clear B on it, then add each again.",
-            Refused(w => Set(w, "trade:DRAFT-2", "before", true), w => Set(w, "trade:DRAFT-2", "before", false)));
         Assert.Equal($"NotInAfter: {existing} is in the package P2 and not in After in the Base, so no case takes it out. Tick A on it, or clear its Package.",
             Refused(w => Package(service, Set(w, $"trade:{existing}", "after", false), "P2", existing), w => Package(service, Set(w, $"trade:{existing}", "after", true), null, existing)));
         Assert.Equal("PackageNamesDiffer: The packages P1 and p1 differ only in the case of their letters, and whether they are one is not guessed. Write one name on all of their trades.",
@@ -611,27 +641,23 @@ public class PricerCaseTests
         var (input, _, _) = await Price(runs, store, service, varied.State);
 
         Assert.Equal([$"P1: add DRAFT-1 without {e[0]} + {e[1]}", "add DRAFT-2"], answer.Made);
-        // Where a case holds the trade, in Before and in After; a trade in neither is not in the case's input at all.
-        (bool Before, bool After)? In(PricedCase c, string id) =>
-            c.Input["trades"]!.AsArray().SingleOrDefault(t => t!["tradeId"]!.GetValue<string>() == id) is { } trade
-                ? (trade["before"]!.GetValue<bool>(), trade["after"]!.GetValue<bool>()) : null;
         var all = PortfolioInput.Cases(input);
         Assert.Equal(["base", "add", "add", "vary"], all.Select(c => c.Kind));
-        Assert.All(new[] { "DRAFT-1", "DRAFT-2", "DRAFT-3" }.Concat(e), id => Assert.Equal(In(all[0], id), In(all[3], id)));
+        Assert.All(new[] { "DRAFT-1", "DRAFT-2", "DRAFT-3" }.Concat(e), id => Assert.Equal(Sides(all[0], id), Sides(all[3], id)));
         var cases = all.Take(3).ToList();
-        // e1, e4 and e5 are the change the Base makes, which each case's title says it carries (docs/03 §5); P1's case
-        // takes e1 out, and does not say it.
-        Assert.Equal(["Base", $"P1: add DRAFT-1 without {e[0]} + {e[1]} · with existing {e[4]} out of After and existing {e[5]} in After only",
-            $"add DRAFT-2 · with existing {e[4]} out of After and existing {e[1]}, {e[5]} in After only"], cases.Select(c => c.Title));
-        Assert.Equal([(false, true), (false, true), null], cases.Select(c => In(c, "DRAFT-1")));
-        Assert.Equal([(false, true), null, (false, true)], cases.Select(c => In(c, "DRAFT-2")));
-        Assert.All(cases, c => Assert.Equal((true, false), In(c, "DRAFT-3")));
-        Assert.Equal([(true, true), (true, false), (true, true)], cases.Select(c => In(c, e[0])));
-        Assert.Equal([(false, true), null, (false, true)], cases.Select(c => In(c, e[1])));
-        Assert.All(cases, c => Assert.Null(In(c, e[2])));
-        Assert.All(cases, c => Assert.Equal((true, true), In(c, e[3])));
-        Assert.All(cases, c => Assert.Equal((true, false), In(c, e[4])));
-        Assert.All(cases, c => Assert.Equal((false, true), In(c, e[5])));
+        // e1, e4, e5 and DRAFT-3, a New row in Before read as an existing trade (note 96), are the change the Base makes,
+        // which each case's title says it carries (docs/03 §5); P1's case takes e1 out, and does not say it.
+        Assert.Equal(["Base", $"P1: add DRAFT-1 without {e[0]} + {e[1]} · with existing {e[4]} and new DRAFT-3 out of After and existing {e[5]} in After only",
+            $"add DRAFT-2 · with existing {e[4]} and new DRAFT-3 out of After and existing {e[1]}, {e[5]} in After only"], cases.Select(c => c.Title));
+        Assert.Equal([(false, true), (false, true), null], cases.Select(c => Sides(c, "DRAFT-1")));
+        Assert.Equal([(false, true), null, (false, true)], cases.Select(c => Sides(c, "DRAFT-2")));
+        Assert.All(cases, c => Assert.Equal((true, false), Sides(c, "DRAFT-3")));
+        Assert.Equal([(true, true), (true, false), (true, true)], cases.Select(c => Sides(c, e[0])));
+        Assert.Equal([(false, true), null, (false, true)], cases.Select(c => Sides(c, e[1])));
+        Assert.All(cases, c => Assert.Null(Sides(c, e[2])));
+        Assert.All(cases, c => Assert.Equal((true, true), Sides(c, e[3])));
+        Assert.All(cases, c => Assert.Equal((true, false), Sides(c, e[4])));
+        Assert.All(cases, c => Assert.Equal((false, true), Sides(c, e[5])));
 
         // The refused rows, each written and taken back: add each, and Make package however few rows it writes, say the
         // row, and nothing is written.
@@ -645,24 +671,22 @@ public class PricerCaseTests
             return $"{refused.Code}: {refused.Message}";
         }
         AddAnswer AddEach(WorkspaceState w) => service.AddTrades(w.WorkspaceId, w.Revision, "akira");
-        const string notTicked = "CandidateNotTicked: DRAFT-3 is in the package P2 and has A clear, and a package adds New rows with A ticked. Tick A on it, or clear its Package.";
-        Assert.Equal("CandidateInBefore: DRAFT-2 is in Before, and a new trade is priced alone only out of Before. Clear B on it, or A to leave it out, then add each again.",
-            Refused(w => Flag(service, w, "DRAFT-2", "before", true), AddEach, w => Flag(service, w, "DRAFT-2", "before", false)));
-        Assert.Equal("CandidateInBefore: DRAFT-1 is in Before, and add each adds a new trade only out of Before. Clear B on it, then add each again.",
-            Refused(w => Flag(service, w, "DRAFT-1", "before", true), AddEach, w => Flag(service, w, "DRAFT-1", "before", false)));
-        Assert.Equal(notTicked, Refused(w => Package(service, w, "P2", "DRAFT-3"), AddEach, w => Package(service, w, null, "DRAFT-3")));
+        // DRAFT-3, in Before, is read as an existing trade (note 96): in a package, it is one After does not hold.
+        Assert.Equal("NotInAfter: DRAFT-3 is in the package P2 and not in After in the Base, so no case takes it out. Tick A on it, or clear its Package.",
+            Refused(w => Package(service, w, "P2", "DRAFT-3"), AddEach, w => Package(service, w, null, "DRAFT-3")));
         Assert.Equal($"NotInAfter: {e[2]} is in the package P2 and not in After in the Base, so no case takes it out. Tick A on it, or clear its Package.",
             Refused(w => Package(service, w, "P2", e[2]), AddEach, w => Package(service, w, null, e[2])));
         Assert.Equal($"NotInAfter: {e[4]} is in the package P3 and not in After in the Base, so no case takes it out. Tick A on it, or clear its Package.",
             Refused(w => Package(service, w, "P3", e[4]), w => service.AddTrades(w.WorkspaceId, w.Revision, "akira", new("P2", ["DRAFT-2"])), w => Package(service, w, null, e[4])));
 
-        // A New row with B and A clear is in no case, and refused in a package as one with B ticked is.
+        // A New row with B and A clear is in no case, and refused in a package as one the package would add.
         at = Flag(service, at, "DRAFT-3", "before", false);
-        Assert.Equal(notTicked, Refused(w => Package(service, w, "P2", "DRAFT-3"), AddEach, w => Package(service, w, null, "DRAFT-3")));
+        Assert.Equal("CandidateNotTicked: DRAFT-3 is in the package P2 and has A clear, and a package adds New rows with A ticked. Tick A on it, or clear its Package.",
+            Refused(w => Package(service, w, "P2", "DRAFT-3"), AddEach, w => Package(service, w, null, "DRAFT-3")));
         var again = AddEach(at);
         var (cleared, _, _) = await Price(runs, store, service, again.State);
         Assert.Equal(answer.Made, again.Made);
-        Assert.All(PortfolioInput.Cases(cleared), c => Assert.Null(In(c, "DRAFT-3")));
+        Assert.All(PortfolioInput.Cases(cleared), c => Assert.Null(Sides(c, "DRAFT-3")));
     }
 
     [Fact] // ADR-0016 note 95 (owner, 2026-11-15): a row in several packages is in each of their cases, so two alternatives may add one new trade or take out one existing trade; every name of a cell is read, and a refusal names every package its row is in
@@ -746,7 +770,7 @@ public class PricerCaseTests
         // Where the cells now make no case, add each again would refuse too: the sentence says to remove the cases instead.
         var none = Set(Package(service, Set(unticked, "trade:DRAFT-2", "after", true), null, "DRAFT-1", "DRAFT-2"), "grid:new", "after", false);
         Assert.Equal("AdditionSetChanged: add each's cases are not what the Package column and A say, which make no case now. "
-            + "Out of date: P1: add DRAFT-1 + DRAFT-2, add DRAFT-3. Remove them with case remove or in Changes, or tick A on a new trade or write a package and run add each again.",
+            + "Out of date: P1: add DRAFT-1 + DRAFT-2, add DRAFT-3. Remove them with case remove or in Changes, or tick A on a new trade with B clear or write a package and run add each again.",
             Refused(none));
         // With no case of add each and the column clear, Price prices the Base: no package is priced by a guess.
         var cleared = service.ClearCases(ws.WorkspaceId, none.Revision, "akira").State;

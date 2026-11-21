@@ -6,6 +6,7 @@ using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Traces;
 using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
+using Qube.Samples.Portfolio;
 
 namespace Qube.Web;
 
@@ -301,7 +302,8 @@ public static class Api
     {
         "UnknownCapability" or "UnknownWorkspace" => 404,
         "NotOwner" => 403,
-        "RevisionMoved" => 409,
+        // A cell still being calculated (ADR-0010 §6's note of 2026-11-21): the same command again prices once it has answered.
+        "RevisionMoved" or PortfolioInput.CellPending => 409,
         _ => null,
     };
 

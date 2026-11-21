@@ -1686,6 +1686,8 @@ Unchanged: every figure on these pages is simulated, and says so.
 
 - What reading `price` costs on a workspace of 10,000 trades is not measured: the reading builds the Run's whole
   input each time the line is read. To be measured before the line is used at that size (ADR-0016 note 33).
+  *Measured 2026-11-19, with Price's confirmation: about 0.5 s at 10,000 trades and 2.5 to 2.9 s at 50,000 (the
+  section on ADR-0016 note 96).*
 - A scenario is named by its name alone: the kernel's `set`, `remove` and the row selector do not reach scenarios
   until they are a table (step 5).
 - What the line showed of a generator while it was typed, part by part, is now the server's sentence, which is
@@ -3967,6 +3969,185 @@ Unchanged: every source and every measure is simulated, and every value is synth
 - **A trade leaves one package by its cell** (or `set` of the whole list): no command takes one name out of a list.
 - **The table's description of the field** still says an identifier: a field has no sentence of its own in the kernel,
   so the AI learns lists from `xva.trades.add`'s contract and the refusal's sentence (note 95).
+
+## A new trade in Before read as booked today, and Price's confirmation (ADR-0016 note 96, ADR-0010 §3's note of 2026-11-19)
+
+The owner raised two things on 2026-11-19. A New row with B and A ticked stands for a trade booked today that the
+source does not hold yet, and should be priced as if it were existing; asked how, he answered 「既存の時と同じように扱えると
+思うけど」 ("I think it can be handled the same as an existing one"), packages included: CONFIRMED, built as ADR-0016
+note 96 (DEFAULT in how), with notes 90 to 95 and docs/03 §5 marked where it amends them. And he asked to see what
+Price would run before it starts (「ケースタイトルのリストがPrice開始前に見れたら自信持てるよね」): DEFAULT, told to him the
+same day, recorded as ADR-0010 §3's note of 2026-11-19.
+
+### What runs
+
+- **A New row in Before is an existing trade to iterative addition.** `add each` adds only New rows out of Before;
+  one in Before is in every case as its B and A say, a common change each case's title names after a dot (`add
+  DRAFT-1 · with new DRAFT-2 in Before and After`, `… · with existing E00002 and new DRAFT-4 out of After`), and a
+  package takes it out of After in that case alone (`P2: take out DRAFT-3`). `CandidateInBefore` is gone; with A
+  clear in a package it is refused as an existing trade is (`NotInAfter`). `NothingToAdd` and Price's sentence where
+  the cells make no case say so.
+- **Make package…** lists each selected trade as the server says a package would take it (`POST …/package-roles`,
+  at the revision the page shows), so a New row in Before is among those it takes out, whichever grid it was selected
+  in, and *Make package* writes at that revision.
+- **Price asks first.** The Price button reads `GET …/price-plan?revision=N` (the input built as Price builds it, at
+  the revision the page shows; a workspace moved past it is refused, and the page reads it again) and opens a dialog
+  listing every case by the title the Run gives it, with its common change, the markets, and the figures Price would
+  refuse as the workspace stands. Enter prices the revision listed, through `xva.workspace.price` with that
+  revision; Escape or Back prices nothing. A plan Price would refuse is a refused Price, with no dialog.
+- **The line's `price`** names the cases after its counts, the first ten and how many more; Enter there prices, as
+  before.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | 1695 passed |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 553 passed |
+| The changed and new browser tests (`add each` and Price refusing a set the rows left; Price's confirmation; the AI moving the workspace while it is open; Make package…; the 390px page), `--repeat-each=3`, Chromium headless on Linux, the built client served by the host | 15 passed |
+| `cd client && npm run build && npx playwright test` (every spec, Chromium headless on Linux) | 159 passed |
+
+New and changed tests, the failure paths among them: a New row in Before and After in every case and named in each
+title, taken out by a package and refused there with A clear, and no candidate when every New row is in Before
+(`A_new_row_in_before_and_after_is_read_as_an_existing_trade`); note 91's table test with New rows in Before; the
+line's `price` naming its cases, ten and the rest counted; the package-roles read at the page's revision, refused at
+a revision the workspace has moved past (409 `RevisionMoved`) and with none named (422 `InvalidValue`); the price
+plan listing every case at the revision named, refused unnamed (422) and stale (409), Price at a stale revision
+refused (409), and a refused plan (422 `AdditionSetChanged`); in the browser, the dialog's list, Escape pricing
+nothing and Enter pricing what it listed, the dialog with two markets and the figures `cds none` would refuse, Price
+refused with no dialog once B reads every new trade as booked today, and a workspace the AI moves while the dialog
+is open refused at Enter (`The workspace is at revision N+1, not N.`), the next press listing what the AI changed.
+
+By hand, in the built client served by the host: the dialog at 1440px in both themes, at 390px in both themes, and at
+768px and 992px light, none scrolling sideways and none logging a console warning; the figures it would refuse; the
+line's reading; the priced titles; and Make package with a New row in Before. The note after each title is drawn as
+the title is, not dimmed (docs/design-guidelines.md §7).
+
+### Providers
+
+Unchanged: every source and every measure is simulated, and every value is synthetic.
+
+### Known limits
+
+- **A press builds Price's input twice**, once to list it and once to price it, as the line's reading already did.
+  Measured below; a plan kept by revision, which Price would reuse, would halve it and is not built.
+- **The plan is the state at the moment it was read.** A workspace that moves while the dialog is open is refused
+  at the press (`RevisionMoved`, or the page's own sentence where it has seen the move), never priced unseen; the
+  dialog does not refresh itself.
+- **The figures it would refuse may read otherwise at Enter.** One that waits on a market read, as PV01 does, can
+  arrive or fail between the list and the press; the dialog says them `as the workspace stands`, and Price itself
+  decides at Enter, as it did before the dialog. *Narrowed 2026-11-21 (the next section):* the plan now waits for
+  every figure still being calculated, so the only one left is a failed PV01 that `pv01 retry` answers between the
+  list and Enter.
+
+### What the review changed
+
+The code review (both axes) found that the plan and *Make package…*'s roles were read at the server's latest
+revision, so a workspace the AI moved after the page's last read was listed, and then priced or packaged, though the
+page had not shown it; both now name the page's revision and are refused past it (spine 6 of ADR-0016). It also
+found the refused figures stated as certain, the note after each title dimmed, the AI's contract still describing
+note 91's refusal, Japanese in a code comment, and measurements not yet recorded; each is fixed above.
+
+### Measurements
+
+Release build on this Linux container, one request at a time from a script, the workspace with two new trades in P1
+and one booked today (`add each`: Base and one case), CVA and FVA, the base market alone. 10,000 requested existing
+trades are 7,000 alive and 50,000 are 35,137, as in slice 02's table. Four reads of the plan and three Prices in a
+row; the first of each is the slowest. Recorded, not gated; no target is agreed.
+
+| Step | 10,000 | 50,000 |
+|---|---|---|
+| The plan the dialog lists (`GET …/price-plan`) | 503 to 1,468 ms | 2,365 to 2,978 ms |
+| The line's reading of `price` | 445 to 537 ms | 2,522 to 2,926 ms |
+| Price accepted (freeze, build and store the input) | 924 to 1,471 ms | 5,111 to 6,730 ms |
+
+So a press of Price at 10,000 trades waits about half a second to a second and a half for its list, with the
+button's spinner turning, and Enter then waits as Price did before. This answers the known limit of generic commands'
+delivery step 3b on what reading `price` costs at that size.
+
+## Price waits while a figure is still being calculated (ADR-0010 §6's note of 2026-11-21)
+
+The owner, 2026-11-21: 「pv01計算中にプライスが押せるようにはならない」 ("Price cannot be pressed while PV01 is being
+calculated") and 「データのロードとかが起こってる時は常にそうするべき」 ("it should always be so while data is loading"). The
+rule is CONFIRMED; how it is built is DEFAULT, recorded as ADR-0010 §6's note of that day. Until then a PV01 still
+pending at Price refused XVA's measures by name and priced the rest. Built in the same pull request as the section
+above (#55).
+
+### What runs
+
+- **Price waits for every cell still being calculated** among the trades it would price, in every case, a case's own
+  included, whatever measure registered the column, and for no other trade's: each module says when its cells on
+  those trades have answered (`IMeasureModule.Answered(state, trades)`, `MeasureRegister.Pending`), and the refusal
+  carries it (`WorkspaceRefused.Settles`). Every case is read first, so every cell is asked at once. PV01 is the only
+  such column today.
+- **The Price button cannot be pressed** while a trade in Before or After waits on one, and says why on its title and
+  on the status line (`PV01 of DRAFT-1 is still being calculated. Price waits for the calculation to finish.`); the
+  sentence is the view's (`priceWaits`), and the button is back once the page's poll sees it answered. The Rates
+  page's Price waits for its market the same way (`The market is still loading; Price waits for it.`).
+- **The price command and the plan wait, bounded** (`PortfolioWorkspaces.WhenAnswered`): the line, the AI, a saved
+  sequence and the plan a press reads wait for the calculation, then price or list what it answered. The bound is
+  10 s (`Portfolio:CellWaitMilliseconds`, a positive number, DEFAULT), timed on the injected clock; past it the
+  command is refused (`CellPending`, 409 and `retryable` from both doors) with what it waited on and the time, the
+  refusal is logged with the workspace and revision, and nothing is submitted, so the same command again is safe. A
+  request cancelled while it waits stops and submits nothing, and one that joined its idempotency key prices in its
+  place (`CommandService`); a cancelled command is counted `cancelled`, not `failed`. The line's reading says `Enter
+  waits for the calculation to finish, then prices as one Run.`
+- **No PV01 is pending for good.** One the engine has not answered in 30 s (`Xva:Pv01TimeoutMilliseconds`, DEFAULT)
+  has failed (`The engine did not answer within 30 s.`), and the engine is asked to stop; `pv01 retry` asks again. A
+  failed PV01 is refused as before, by name, with the rest priced.
+- The simulated PV01 engine with no delay is called on the reader's thread (`Pv01Provider(..., onReaderThread:
+  true)`), so a test that loads a trade and prices it at once does not wait; the host's still answers after 400 ms.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | 1702 passed, three runs in a row |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 553 passed |
+| The new and changed browser tests (the XVA button disabled with its reason while the server says Price waits, and back after; the Rates button disabled until its market is read), `--repeat-each=3`, Chromium headless on Linux, the built client served by the host | 6 passed |
+| `cd client && npm run build && npx playwright test` (every spec, Chromium headless on Linux) | 160 passed |
+
+New tests, the failure paths among them: Price waiting for a PV01 still being calculated and pricing what it
+answered (the Run's PV01 and PV Adj are the answer's, and the command does not complete before it), with the view's
+`priceWaits` and the line's reading; a PV01 still pending past the bound refused (`CellPending`) with nothing
+submitted; two cases' own PV01s (`vary DRAFT-1 notional 2bn, 3bn`) waited on by the plan, the line naming the first
+and counting the other, while the view does not say them; Price waiting on its own PV01 alone while another
+workspace's never answers; a Price cancelled while it waits submitting nothing, and another request with its key
+pricing once the PV01 answers; a PV01 the engine does not answer in its time failing, the engine told to stop, XVA
+refused by name and the rest priced; over HTTP, the plan and the command door both answering a Price still waiting
+409, `retryable`, with no Run made; and in the browser, the button disabled with the server's sentence on its title
+and the status line, and back once it has answered, and the Rates button disabled with its reason until the market
+is read. The three tests that priced a pending PV01 to see XVA refused now
+price a failed one, and one prices again after `pv01 retry` (`A_retried_price_is_the_same_run_after_a_pv01_answered`).
+
+By hand, in the built client served by a host whose PV01 answers after 20 s: the disabled button and the status line
+at 1440px in both themes and at 390px in both themes, none scrolling sideways; the line's reading in both themes; the
+button back once the PV01 answered; and the Rates page's Price disabled while its market read was held back. No
+console warning or error was logged.
+
+### Providers
+
+Unchanged: every source and every measure is simulated, and every value is synthetic. The PV01 timeout is a real
+behaviour of the provider whichever engine it wraps; only the engine is simulated.
+
+### Known limits
+
+- **The button does not wait on a case's own cell**, which the view does not carry; the press does, within the bound.
+- **The bound is a time.** A calculation slower than 10 s refuses the command, which says so and can be repeated. Both
+  times are configurable, and nothing measures a real engine yet.
+- **A PV01 that timed out stays failed** until `pv01 retry`, as one the engine refused does; an answer the engine
+  sends later is not taken.
+- **A Price running while the input changes** is not built: whether to ask before stopping it, or to offer another
+  panel, waits for the owner's answer (no Run can be stopped today).
+
+### What the review changed
+
+The code review (both axes) found that Price waited on every PV01 the server had ever asked, so another workspace's
+slow one held it its full time; that a PV01 the engine never answered held every Price for good; that the command
+door answered the refusal 422, unlike the plan's 409; that a joined request inherited another's cancellation; that the
+wait's setting was not checked, the time it said was not always the time waited, and a timed-out wait was not logged;
+and a Japanese quote in a code comment. Each is fixed above. The Rates page's Price was found to ignore its market
+loading, and now waits for it.
 
 ## Rates lines named in order (ADR-0016 note 65, 2026-11-14)
 

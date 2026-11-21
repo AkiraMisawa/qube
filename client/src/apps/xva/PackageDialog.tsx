@@ -14,8 +14,13 @@ import { packagesOf } from './packages';
 /** *Make package from the selection…*'s id on a Context Menu of the trade grids (ex-grid ADR-0036). */
 export const PACKAGE_COMMAND = 'xva.package.selection';
 
-/** What the two trade grids' selections name, as the server read them: the New grid's, and the Existing grid's. */
-export type Selected = Pick<Iteration, 'add' | 'without'>;
+/**
+ * What the two trade grids' selections name, as the server read them and said what a package would do with each: the
+ * trades it would add, the New grid's out of Before, and those it would take out of After, the Existing grid's and the
+ * New grid's in Before, which are read as existing trades (ADR-0016 note 96). `revision` is the one the server said
+ * it at, which the press writes at, so a workspace moved since refuses it rather than do otherwise than listed.
+ */
+export type Selected = Pick<Iteration, 'add' | 'without'> & { readonly revision: number };
 
 export function PackageDialog({ selection, packages, next, make, onClose }: {
   /** What the two selections name; none while the dialog is closed. */
@@ -24,8 +29,8 @@ export function PackageDialog({ selection, packages, next, make, onClose }: {
   readonly packages: readonly PackageView[];
   /** The name the server gives a package where none is, which the dialog offers. */
   readonly next: string;
-  /** Writes the package on the trades and makes the cases. Refused, it answers the server's reason, and nothing was written. */
-  readonly make: (name: string, trades: readonly string[]) => Promise<string | undefined>;
+  /** Writes the package on the trades at the revision they were listed at, and makes the cases. Refused, it answers the server's reason, and nothing was written. */
+  readonly make: (name: string, trades: readonly string[], revision: number) => Promise<string | undefined>;
   readonly onClose: () => void;
 }) {
   return (
@@ -40,7 +45,7 @@ function PackageForm({ selection, packages, next, make, onClose }: {
   readonly selection: Selected;
   readonly packages: readonly PackageView[];
   readonly next: string;
-  readonly make: (name: string, trades: readonly string[]) => Promise<string | undefined>;
+  readonly make: (name: string, trades: readonly string[], revision: number) => Promise<string | undefined>;
   readonly onClose: () => void;
 }) {
   const [name, setName] = useState(next);
@@ -63,7 +68,7 @@ function PackageForm({ selection, packages, next, make, onClose }: {
     if (none !== undefined || busy) return;
     setBusy(true);
     try {
-      const reason = await make(typed, kept);
+      const reason = await make(typed, kept, selection.revision);
       if (reason === undefined) onClose();
       else setRefused(`No package was made: ${reason}`);
     } finally {
@@ -99,14 +104,14 @@ function PackageForm({ selection, packages, next, make, onClose }: {
       <Text size="sm">
         Adds the package to the Package column of the trades kept, which stay in any package they are in, then makes add
         each&apos;s cases anew: the new trades of a package are added together in one case, and its existing trades taken out
-        of After there. Press a trade to leave it out.
+        of After there. A new trade in Before is taken out, as an existing one is. Press a trade to leave it out.
       </Text>
       <TextInput size="sm" label="Package" value={name} onChange={(e) => { setRefused(undefined); setName(e.currentTarget.value); }}
         onKeyDown={(e) => { if (e.key === 'Enter') void submit(); }}
         description="The next free name, or a package's name to add the trades to it." disabled={busy} />
-      {list('Adds together', selection.add, 'No row of New trades is selected: the package adds none.',
+      {list('Adds together', selection.add, 'No new trade out of Before is selected: the package adds none.',
         (trade, on) => (on ? `The package adds ${trade}. Press to leave it out.` : `${trade} is left out. Press to add it.`))}
-      {list('Takes out of After', selection.without, 'No row of Existing trades is selected: the package takes none out.',
+      {list('Takes out of After', selection.without, 'No existing trade, nor new trade in Before, is selected: the package takes none out.',
         (trade, on) => (on ? `The package takes ${trade} out of After. Press to leave it in.` : `${trade} stays in After. Press to take it out.`))}
       {said !== undefined && <Text size="sm" c="red" role="alert" data-testid="package-refused">{said}</Text>}
       <Group justify="flex-end" gap="xs">

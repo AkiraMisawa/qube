@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
+using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
 
@@ -104,6 +105,12 @@ public sealed record TradeCell(JsonNode? Value, string State, string? Note, bool
 }
 
 /// <summary>
+/// Cells still being calculated on the trades a reading would price (ADR-0010 §6's note of 2026-11-21): the sentence
+/// that names them, and what completes, never faulting, once every one of them has answered or failed.
+/// </summary>
+public sealed record CellsPending(string Says, Task Answered);
+
+/// <summary>
 /// A measure in the workspace view: its definition, the module that owns it, and the module whose request prices it,
 /// whose step's result holds its rows (ADR-0010 §10).
 /// </summary>
@@ -178,6 +185,14 @@ public interface IMeasureModule
 
     /// <summary>The columns it adds to the trade grids (ADR-0010 §10), in order; none unless it says.</summary>
     IReadOnlyList<TradeColumn> TradeColumns => [];
+
+    /// <summary>
+    /// Completes once its cells on these trades that were still being calculated have answered or failed: what Price
+    /// waits on before it reads them again (ADR-0010 §6's note of 2026-11-21). Never faults, and waits on no other
+    /// trade's cell. Asked only of a module with such a cell, so one whose cells are never pending need not say it.
+    /// </summary>
+    Task Answered(WorkspaceState state, IReadOnlyList<EffectiveTrade> trades) =>
+        throw new NotSupportedException($"Module {Id} has a cell still being calculated and does not say when it is answered.");
 
     /// <summary>The fields of the shared input tabs its measures need (ADR-0010 §10); none unless it says.</summary>
     IReadOnlyList<MeasureInput> Inputs => [];
@@ -304,6 +319,34 @@ public sealed class MeasureRegister
                 : (t.Original ?? new Dictionary<string, JsonNode?>()).Concat(held.Select(f => KeyValuePair.Create(f, (JsonNode?)null))).ToDictionary();
             return t with { Cells = row, Original = original };
         })];
+    }
+
+    /// <summary>
+    /// What keeps Price waiting (ADR-0010 §6's note of 2026-11-21; the owner: Price is not pressed while data is loading):
+    /// a cell still being calculated on one of these trades, which carry their cells (<see cref="WithCells"/>), such as
+    /// a PV01 the engine has not answered yet. It names the first such column and the trades it waits on there, three at
+    /// most and how many more, and carries what completes once every such cell on them has answered or failed, asked of
+    /// the modules whose cells they are. Null where none waits.
+    /// </summary>
+    public CellsPending? Pending(WorkspaceState state, IReadOnlyList<EffectiveTrade> trades)
+    {
+        var columns = TradeColumns.ToList();
+        int Place(string field)
+        {
+            var place = columns.FindIndex(c => c.Field == field);
+            return place >= 0 ? place : throw new InvalidOperationException($"A cell {field} is of no registered trade column.");
+        }
+        // A trade with no cells, such as an existing one, waits on nothing.
+        var pending = trades.Where(t => t.Cells is not null)
+            .SelectMany(t => t.Cells!.Where(c => c.Value.State == TradeCell.Pending).Select(c => (Trade: t, c.Key, Place: Place(c.Key))))
+            .ToList();
+        if (pending.Count == 0) return null;
+        var first = pending.GroupBy(x => x.Place).OrderBy(g => g.Key).First();
+        var ids = first.Select(x => x.Trade.TradeId).Distinct().ToList();
+        var answered = pending.GroupBy(x => (ColumnOf(x.Key) ?? throw new InvalidOperationException($"A cell {x.Key} is of no module's column.")).Module)
+            .Select(g => g.Key.Answered(state, [.. g.Select(x => x.Trade).Distinct()]));
+        return new($"{columns[first.Key].Title} of {TableWords.Some(ids)} {(ids.Count == 1 ? "is" : "are")} still being calculated.",
+            Task.WhenAll(answered));
     }
 
     /// <summary>Every declared membership rule over a state. A measure that declares membership and gives no rule stops here.</summary>

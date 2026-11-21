@@ -165,7 +165,9 @@ variants the workspace is one case.
   them, `mm` and never `m`).
 - **Iterative individual addition** (docs/03 §5) is a generated set of cases, one `add <trade>` per eligible new
   trade with After checked, with docs/03 §5's rules unchanged: not cumulative, a common change to existing trades is
-  stated in every case, a candidate in Before is refused rather than unchecked.
+  stated in every case, a candidate in Before is refused rather than unchecked. *Amended 2026-11-19 (the owner;
+  ADR-0016 note 96): a New row in Before is no candidate. It stands for a trade booked today, is read as an existing
+  trade, and is a common change each case states.*
 - **The changes panel** lists the Common and side-only changes and each case's own, and edits or removes them there,
   so nobody has to find a changed cell in a wide grid.
 - **A Price without Before prices After alone** (owner, 2026-11-07: with B not selected only After has a result, no
@@ -213,6 +215,43 @@ what the case adds and keeps in After one it takes out; the one trade a case add
 case is removed whole. How the line spells the lists is still open. *Changed in review, the same day:* the buttons
 were first named `One case…`, and *Make case* first said the whole set again, which a stale case of the set
 refused by a trade the dialog does not list (ADR-0016 note 37's corrections).
+
+*Note of 2026-11-19 (the owner's request that day; how it is built is DEFAULT, told to him the same day):* **Price
+lists what it would price before it starts.** The owner: 「何が実行されるかの確認ビューはほしいかもね。計算終わるまでわからない
+のは厳しいものがある。…ケースタイトルのリストがPrice開始前に見れたら自信持てるよね。全員が仕様に精通してるわけではないだろうし」
+("a view confirming what will run would be good; not knowing until the computation ends is hard. … a list of the case
+titles before Price starts would give confidence; not everyone knows the specification well").
+
+- **The Price button opens a dialog, *Price*,** that lists every case in the order Price prices it, titled as the
+  Run titles it, with the common change it carries after the title (docs/03 §5). Above the list is what the button
+  says (the sides, the measures and the number of cases, `Price CVA FVA · 4 cases × 3 markets`); below it, the
+  markets where there are several (§4), and the figures Price will refuse while it prices the rest. *Price N cases*
+  holds the keyboard, so Enter prices; Escape, or *Back*, goes back and prices nothing.
+- **What it lists is the server's, at the revision the page shows.** Once the edits sent have landed, the page reads
+  `GET …/price-plan?revision=N`, which builds the input as Price builds it at that revision. A read that names none
+  is refused (`InvalidValue`), and a workspace moved past it, by the AI or another page, is refused (`RevisionMoved`),
+  so the list is never of a workspace the page has not shown; the page then reads the workspace again, and the next
+  press lists it. What Price would refuse is refused there with Price's own code and sentence, which the page says
+  as a refused Price (`Price was refused: …`), and no dialog opens.
+- **The figures it would refuse are said as the workspace stands.** A figure that waits on a market read, as PV01
+  does (§6), may read otherwise when Enter prices, so the dialog says `As the workspace stands, N figures would be
+  refused, and the rest priced:` and lists each by measure and case. *Amended 2026-11-21 (§6's note of that day):*
+  the plan now waits for every figure still being calculated, so none is pending when the dialog opens. One the list
+  refuses for a failed PV01 reads otherwise at Enter only if `pv01 retry` answered it in between, which does not
+  move the revision; Price still decides at Enter.
+- **It prices what it listed and nothing else.** *Price N cases* invokes `xva.workspace.price` with the revision the
+  list was read at, so a workspace that moved after the list was read is refused (`RevisionMoved`), and the page
+  sends nothing where it has seen the move itself (ADR-0003; the page's `Press Price to see them again.`). One press
+  is still one Run (§9).
+- **The line and the AI read the same.** `price`'s reading (ADR-0016 note 33) names the cases by title after the
+  counts, the first ten and how many more (`Prices CVA and FVA for 2 cases, as one Run: Base; P1: add DRAFT-1 +
+  DRAFT-2 · with new DRAFT-3 in Before and After.`). Enter on the line is its confirmation, so the line takes no
+  second Enter.
+- *What it costs.* A press builds the input twice, once to list it and once to price it, as the line's reading did
+  already. Measured in `IMPLEMENTATION_STATUS.md`.
+- *Changed in review, the same day:* the list was first read at whatever revision the server held, so a workspace the
+  AI moved between the page's last read and the press was listed though the page had not shown it, and Enter then
+  priced it; it is now read at the page's revision, as above.
 
 ### 4. Scenarios (CONFIRMED, owner 2026-11-07)
 
@@ -351,11 +390,60 @@ the first case of a measure's membership, which every measure now declares (§10
   with its own sign, whenever Margin is entered: Margin wins, PV Adj is then read-only and says it came from Margin.
   With Margin empty PV Adj is typed. Price freezes PV Adj with the PV01 and Margin it came from; a later PV01 does not
   change a frozen Run. With Margin entered and PV01 pending or failed, XVA's measures are refused by name at Price
-  (DEFAULT, note of 2026-11-07), since the adjustment they would price is unknown.
+  (DEFAULT, note of 2026-11-07), since the adjustment they would price is unknown. *Amended 2026-11-21 (the owner;
+  the note at the end of this section): a PV01 still pending no longer reaches Price, which waits for it; only a
+  failed one is refused this way.*
 - Existing trades show their official PV from the source as the PV that adjustment uses. The official PV is shared
   trade data, not XVA's: SA-CCR's replacement cost reads it too for an existing trade (ADR-0013).
 - A selected measure that declares membership (§10) adds its read-only membership column to both grids, with its
   reasons and an *in <measure>* filter (by scope where it has several), as FVA's of §5.
+
+*Note of 2026-11-21 (the owner, that day; the rule is CONFIRMED, how it is built DEFAULT):* **Price waits while a
+figure it would price is still being calculated.** The owner: 「pv01計算中にプライスが押せるようにはならない」 ("Price cannot
+be pressed while PV01 is being calculated") and 「データのロードとかが起こってる時は常にそうするべき」 ("it should always be so
+while data is loading"). Until then a PV01 still pending at Price refused XVA's measures by name and priced the rest,
+so a press a moment after a trade loaded made a Run without them.
+
+- **The rule is the page's, not PV01's.** A trade column a measure registers (§10) may hold a cell still being
+  calculated. Price waits for every such cell among the trades it would price, in every case, a case's own included
+  (`vary DRAFT-1 notional 2bn` asks that case's PV01 when Price reads it), and for no other: not another workspace's,
+  nor terms typed over since. Every case is read first, so every cell is asked at once and they are waited on
+  together; the module whose cell it is says when it has answered. PV01 is the only such column today.
+- **The button cannot be pressed** while one of the trades in Before or After waits on one, and says why on its title
+  and on the status line, where a touch screen reads it: `PV01 of DRAFT-1 is still being calculated. Price waits for
+  the calculation to finish.` The sentence is the server's (the view's `priceWaits`), so the page decides nothing; the
+  button is back once every cell has answered. A case's own cell is not in the view, so the button does not wait on
+  it, and the press does.
+- **A command waits, bounded.** `price` on the line, from the AI or in a saved sequence, and the plan a press reads
+  (§3's note of 2026-11-19), wait for the calculation to finish and then price, or list, what it answered, as one
+  Run. The wait is at most 10 s (`Portfolio:CellWaitMilliseconds`, a positive number of milliseconds). A cell still
+  pending after it is refused (`CellPending`) with what it waited on and the time, and logged with the workspace and
+  the revision; nothing is submitted, so the same command again is safe. Both doors answer it as a conflict to retry
+  (409, `retryable`), the plan's and the command door the line and the AI use. A request cancelled while it waits stops
+  and submits nothing, and another with its key, still waiting, prices in its place. The line's reading of `price` is
+  not refused: it says `… Enter waits for the calculation to finish, then prices as one Run.` A refusal would have broken `edit;
+  price` in one sequence, and the AI's Price after its own edit.
+- **No PV01 is pending for good.** One the engine has not answered in 30 s has failed (`The engine did not answer
+  within 30 s.`, `Xva:Pv01TimeoutMilliseconds`), and the engine is asked to stop; `pv01 retry` asks again. So a hung
+  engine refuses XVA by name, as a failed one does, and never holds every measure's Price.
+- **A failed figure is refused as before**, by name, and the rest priced. It stays failed until `pv01 retry`, so
+  waiting would not change it.
+- **What the page itself is loading already held Price**: the button waits while another of the toolbar's commands
+  runs, and a press lists the workspace only once the edits already sent have landed (§3).
+- **The Rates page's Price waits for its market** the same way: it prices on the market snapshot the page shows
+  (docs/07 §3), so until that has been read the button cannot be pressed and says so (`The market is still loading;
+  Price waits for it.`), and the badge beside it reads `no market yet`. Nothing else on that page is calculated before
+  Price.
+- *Not built here:* what happens when the input changes while a Price runs, the owner's other point that day
+  (「プライス中に入力を変えるのも既存のものを止めていいですかと聞くべき」, "changing the input during a Price should ask whether to
+  stop the one running", and 「もしくは他のパネルにオープンするよう促すとか」, "or prompt to open it in another panel"), is put
+  to the owner as a decision of its own, since no Run can be stopped today.
+- *Simulated:* the host's PV01 engine answers after 400 ms (`Xva:Pv01DelayMilliseconds`); one with no delay is
+  called on the reader's thread and answers as it is asked, so a test that loads a trade and prices it at once does
+  not wait.
+- *Changed in review, the same day:* Price first waited on every PV01 the server had ever asked, so another
+  workspace's slow one held it its full 10 s; a PV01 the engine never answered held every Price for good; and the
+  command door answered the refusal 422, not as a conflict. Each is as above now.
 
 ### 7. The result dock (CONFIRMED, owner 2026-11-07, unless marked)
 

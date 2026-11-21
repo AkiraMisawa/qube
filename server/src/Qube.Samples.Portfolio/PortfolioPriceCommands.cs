@@ -24,18 +24,27 @@ public static class PortfolioPriceContracts
     public const string CounterpartyRequest = "xva.counterparty-request";
     public const string Moved = "xva.source-moved";
 
+    /// <summary>How many cases a reading of <c>price</c> names by title; Price's confirmation lists every one.</summary>
+    public const int CasesNamed = 10;
+
     /// <summary>
-    /// What a reading of <c>price</c> says Price would price: the measures, the cases, the markets where a scenario is
-    /// included, the side priced alone where the other holds no trade, and what a case's input already refuses.
+    /// What a reading of <c>price</c> says Price would price: the measures, the cases, by title where there is more than
+    /// the Base (owner, 2026-11-19: what will run is seen before it runs), the markets where a scenario is included, the
+    /// side priced alone where the other holds no trade, and what a case's input already refuses. Titles are told apart
+    /// by semicolons, since a common change may name trades with commas.
     /// </summary>
     public static string WouldPrice(PricePlan plan)
     {
-        var cases = TableWords.Counted(plan.Cases, "case");
-        var on = plan.Markets == 1 ? cases : $"{cases} on {plan.Markets} markets (the base market and {TableWords.Counted(plan.Markets - 1, "scenario")})";
+        var cases = TableWords.Counted(plan.Cases.Count, "case");
+        var markets = plan.Markets.Count;
+        var on = markets == 1 ? cases : $"{cases} on {markets} markets (the base market and {TableWords.Counted(markets - 1, "scenario")})";
         var side = plan.Before && !plan.After ? ", Before only" : !plan.Before && plan.After ? ", After only" : "";
+        var more = plan.Cases.Count - CasesNamed;
+        var named = plan.Cases.Count == 1 ? ""
+            : $": {string.Join("; ", plan.Cases.Take(CasesNamed).Select(c => PortfolioCases.Titled(c.Title, c.Note)))}{(more > 0 ? $"; and {more} more" : "")}";
         var refused = plan.Refused.Count == 0 ? ""
             : $" {TableWords.Counted(plan.Refused.Count, "figure")} of it would be refused, first {plan.Refused[0].Measure} of {plan.Refused[0].Case}: {plan.Refused[0].Message}";
-        return $"Prices {TableWords.And(plan.Measures)} for {on}{side}, as one Run.{refused}";
+        return $"Prices {TableWords.And(plan.Measures)} for {on}{side}, as one Run{named}.{refused}";
     }
 
     /// <summary>What <c>refresh</c> says back: the edits to the portfolio's data that carried, and those held for the user.</summary>
@@ -153,17 +162,33 @@ public sealed class PortfolioPriceCommand(Func<PortfolioWorkspaces> workspaces) 
         [new("answer", PortfolioPriceContracts.PriceAccepted, PortfolioContracts.Version, Cardinality.One)],
         ExecutionKind.RequestResponse, [CapabilityEffect.Execute], new(["price"], [], PortfolioEditRules.App));
 
-    public LineRead Read(LineContext line) =>
-        PortfolioCommand.Read(line, [], PortfolioPriceContracts.WouldPrice(
-            CommandRequests.Naming(() => workspaces().PlanPrice(line.State.WorkspaceId, line.State.Revision, line.Caller.UserId))));
+    public LineRead Read(LineContext line) => PortfolioCommand.Read(line, [], Would(line));
+
+    // A reading says what Price would price, or, while a cell it reads is still being calculated, that Enter waits for
+    // it and then prices (ADR-0010 §6's note of 2026-11-21): a line read the moment after an edit is not refused for it.
+    string Would(LineContext line)
+    {
+        try
+        {
+            return PortfolioPriceContracts.WouldPrice(
+                CommandRequests.Naming(() => workspaces().PlanPrice(line.State.WorkspaceId, line.State.Revision, line.Caller.UserId)));
+        }
+        catch (WorkspaceRefused pending) when (pending.Code == PortfolioInput.CellPending)
+        {
+            return $"{pending.Message} Enter waits for the calculation to finish, then prices as one Run.";
+        }
+    }
 
     public LineCompletions Complete(LineContext line) => LineCompletions.None;
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
-        PortfolioCommand.Asked(invocation, workspaces, (service, request, caller, revision) =>
+        PortfolioCommand.Awaited(invocation, workspaces, async (service, request, caller, revision) =>
         {
             var id = CommandRequests.Text(request, "workspaceId");
-            var run = CommandRequests.Accepted(CommandRequests.Naming(() => service.Price(id, revision, caller.UserId, CommandRequests.Key(invocation, "Price"), caller.Origin)));
+            // Price waits for a cell still being calculated (ADR-0010 §6's note of 2026-11-21); a Price refused for one
+            // submitted nothing, so the key is asked once more as it was.
+            var run = CommandRequests.Accepted(await service.WhenAnswered(id, revision,
+                () => CommandRequests.Naming(() => service.Price(id, revision, caller.UserId, CommandRequests.Key(invocation, "Price"), caller.Origin)), cancellationToken));
             return new JsonObject { ["workspaceId"] = id, ["revision"] = revision, ["said"] = $"Price was accepted as Run {run.RunId}.", ["runId"] = run.RunId };
         });
 }

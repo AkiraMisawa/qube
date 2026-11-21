@@ -3,7 +3,7 @@ using Qube.Composition.Application.Workspaces;
 
 namespace Qube.Samples.Portfolio;
 
-/// <summary>A package as the trades' Package cells write it (ADR-0016 note 90): its name, the new trades it adds and the existing trades it takes out of After.</summary>
+/// <summary>A package as the trades' Package cells write it (ADR-0016 note 90): its name, the new trades it adds and the trades it takes out of After, the existing ones and the New rows in Before (note 96).</summary>
 public sealed record PackageView(string Name, IReadOnlyList<string> Adds, IReadOnlyList<string> TakesOut);
 
 /// <summary>
@@ -11,8 +11,9 @@ public sealed record PackageView(string Name, IReadOnlyList<string> Adds, IReadO
 /// several trades as one package and names the trades it takes out). A trade's Package cell names the packages it is
 /// in, one or more separated by commas (note 95; owner, 2026-11-15): the new trades of a package are added together in
 /// one case, and its existing trades are taken out of After in that case alone. A New row with A ticked that is in no
-/// package is a case alone, as before. What the cells say is read here, and is never mended for the user: a cell that
-/// cannot be read as packages is refused by the trade's name.
+/// package is a case alone, as before. A New row in Before is read as an existing trade (note 96; owner, 2026-11-19).
+/// What the cells say is read here, and is never mended for the user: a cell that cannot be read as packages is
+/// refused by the trade's name.
 /// </summary>
 public static class PortfolioPackages
 {
@@ -51,15 +52,45 @@ public static class PortfolioPackages
     public static string? NameProblem(string name) =>
         name.Length > 0 && name == name.Trim() && !name.Contains(',') ? null : "A package is one name with no comma, such as P1.";
 
-    /// <summary>The packages the cells name, in the order of their first trade: the New rows first, then the existing.</summary>
+    /// <summary>
+    /// Whether a trade is new to the book, which <c>add each</c> adds: a New row out of Before. A New row in Before is a
+    /// trade the user booked today and the source does not hold yet (ADR-0016 note 96; owner, 2026-11-19: "I think it
+    /// can be handled the same as an existing one"), and is read as an existing trade in every way: in Before and After
+    /// in every case as its B and A say, and taken out of After by a package it is in.
+    /// </summary>
+    public static bool IsNewToBook(EffectiveTrade trade) => trade.IsNew && !trade.Before;
+
+    /// <summary>A candidate of <c>add each</c>: a trade new to the book with A ticked, which some case adds alone or in its package.</summary>
+    public static bool IsCandidate(EffectiveTrade trade) => IsNewToBook(trade) && trade.After;
+
+    /// <summary>
+    /// What a package of these trades does with each, in their order: it adds those new to the book, and takes the
+    /// others out of After, an existing trade and a New row in Before alike (ADR-0016 notes 90 and 96).
+    /// </summary>
+    public static PackageRoles Roles(IEnumerable<EffectiveTrade> trades)
+    {
+        var listed = trades.ToList();
+        return new([.. listed.Where(IsNewToBook).Select(t => t.TradeId)], [.. listed.Where(t => !IsNewToBook(t)).Select(t => t.TradeId)]);
+    }
+
+    /// <summary>
+    /// The packages the cells name, in the order of their first trade as the grids hold them: the New rows first, then
+    /// the existing. A package adds its New rows out of Before, and takes out its other trades (note 96).
+    /// </summary>
     public static IReadOnlyList<PackageView> Named(IReadOnlyList<EffectiveTrade> trades)
     {
         // Each cell read once: a workspace holds thousands of trades.
-        var ordered = trades.Where(t => t.IsNew).Concat(trades.Where(t => !t.IsNew)).Select(t => (Trade: t, Names: t.Packages)).Where(t => t.Names.Count > 0).ToList();
-        return [.. ordered.SelectMany(t => t.Names).Distinct(StringComparer.Ordinal).Select(name => new PackageView(name,
-            [.. ordered.Where(t => t.Trade.IsNew && t.Names.Contains(name, StringComparer.Ordinal)).Select(t => t.Trade.TradeId)],
-            [.. ordered.Where(t => !t.Trade.IsNew && t.Names.Contains(name, StringComparer.Ordinal)).Select(t => t.Trade.TradeId)]))];
+        var ordered = InGridOrder(trades).Select(t => (Trade: t, Names: t.Packages)).Where(t => t.Names.Count > 0).ToList();
+        PackageView Of(string name)
+        {
+            var roles = Roles(ordered.Where(t => t.Names.Contains(name, StringComparer.Ordinal)).Select(t => t.Trade));
+            return new(name, roles.Adds, roles.TakesOut);
+        }
+        return [.. ordered.SelectMany(t => t.Names).Distinct(StringComparer.Ordinal).Select(Of)];
     }
+
+    // The trades as the two grids hold them, the New grid's first: the order cases and packages are named in.
+    static IEnumerable<EffectiveTrade> InGridOrder(IReadOnlyList<EffectiveTrade> trades) => trades.Where(t => t.IsNew).Concat(trades.Where(t => !t.IsNew));
 
     /// <summary>The first name of <c>P1</c>, <c>P2</c>, … that no cell names, whatever the case of its letters.</summary>
     public static string NextFree(IReadOnlyList<EffectiveTrade> trades)
@@ -72,14 +103,15 @@ public static class PortfolioPackages
     /// The set <c>add each</c> makes of the trades as the Base holds them (docs/03 §5, ADR-0016 §3 and note 90): a case
     /// per package and one per New row with A ticked that is in none, in the order of the rows, the New grid's first, and
     /// a row's packages in the order its cell writes them. A row in several packages is in each of their cases (note
-    /// 95). Never cumulative: each case adds its own new trades alone. Refused by the trades' names, with nothing made: two
-    /// packages whose names differ only in case, a New row of a package with A clear, a new trade to add that is in
-    /// Before, and an existing trade of a package that the Base does not have in After; and a set of no case. An
-    /// existing trade of a package in After alone is taken out too, so its case holds it in neither (ADR-0016 note 91).
+    /// 95). Never cumulative: each case adds its own new trades alone. A New row in Before is read as an existing trade
+    /// (note 96). Refused by the trades' names, with nothing made: two packages whose names differ only in case, a New
+    /// row of a package with A clear, and a trade a package takes out that the Base does not have in After; and a set of
+    /// no case. A trade of a package in After alone is taken out too, so its case holds it in neither (ADR-0016 note 91).
     /// </summary>
     public static IReadOnlyList<Iteration> AdditionSet(IReadOnlyList<EffectiveTrade> trades) =>
         AdditionSetOrNone(trades) is { Count: > 0 } set ? set
-            : throw new WorkspaceRefused("NothingToAdd", "add each makes a case per package and per New row with A ticked, and no trade is in a package and no New row has A ticked.");
+            : throw new WorkspaceRefused("NothingToAdd", "add each makes a case per package and per New row with A ticked and B clear, and no trade is in a package and no New row has A ticked and B clear. "
+                + "A New row in Before is read as an existing trade.");
 
     /// <summary>
     /// The set the cells say, as <see cref="AdditionSet"/> makes it, refusing what it refuses, but empty where the
@@ -87,28 +119,21 @@ public static class PortfolioPackages
     /// </summary>
     public static IReadOnlyList<Iteration> AdditionSetOrNone(IReadOnlyList<EffectiveTrade> trades)
     {
-        var news = trades.Where(t => t.IsNew).ToList();
-        var existing = trades.Where(t => !t.IsNew).ToList();
-        if (news.Concat(existing).SelectMany(t => t.Packages).Distinct(StringComparer.Ordinal).GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
+        var ordered = InGridOrder(trades).ToList();
+        // What a package adds, and what it takes out: a New row in Before is read as an existing trade (note 96).
+        var newToBook = ordered.Where(IsNewToBook).ToList();
+        var inBook = ordered.Where(t => !IsNewToBook(t)).ToList();
+        if (ordered.SelectMany(t => t.Packages).Distinct(StringComparer.Ordinal).GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.ToList()).FirstOrDefault(names => names.Count > 1) is { } clash)
             throw new WorkspaceRefused("PackageNamesDiffer",
                 $"The packages {TableWords.And(clash)} differ only in the case of their letters, and whether they are one is not guessed. Write one name on all of their trades.");
-        if (news.Where(t => t.Packages.Count > 0 && !t.After).ToList() is { Count: > 0 } clear)
+        if (newToBook.Where(t => t.Packages.Count > 0 && !t.After).ToList() is { Count: > 0 } clear)
         {
             var (them, their) = Pronouns(clear);
             throw new WorkspaceRefused("CandidateNotTicked",
                 $"{InPackages(clear)} and {(clear.Count == 1 ? "has" : "have")} A clear, and a package adds New rows with A ticked. Tick A on {them}, or clear {their} Package.");
         }
-        if (news.Where(t => t.After && t.Before).ToList() is { Count: > 0 } inBefore)
-        {
-            var (are, them) = inBefore.Count == 1 ? ("is", "it") : ("are", "them");
-            var ids = string.Join(", ", inBefore.Select(t => t.TradeId));
-            // A trade alone may also be left out by clearing A; one in a package is then refused as above.
-            throw new WorkspaceRefused("CandidateInBefore", inBefore.All(t => t.Packages.Count == 0)
-                ? $"{ids} {are} in Before, and a new trade is priced alone only out of Before. Clear B on {them}, or A to leave {them} out, then add each again."
-                : $"{ids} {are} in Before, and add each adds a new trade only out of Before. Clear B on {them}, then add each again.");
-        }
-        if (existing.Where(t => t.Packages.Count > 0 && !t.After).ToList() is { Count: > 0 } outside)
+        if (inBook.Where(t => t.Packages.Count > 0 && !t.After).ToList() is { Count: > 0 } outside)
         {
             var (them, their) = Pronouns(outside);
             throw new WorkspaceRefused("NotInAfter",
@@ -119,11 +144,11 @@ public static class PortfolioPackages
         var packages = Named(trades).ToDictionary(p => p.Name, StringComparer.Ordinal);
         var set = new List<Iteration>();
         var made = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var t in news.Concat(existing))
+        foreach (var t in ordered)
         {
             foreach (var name in t.Packages)
                 if (made.Add(name)) set.Add(new(packages[name].Adds, packages[name].TakesOut, name));
-            if (t.Packages.Count == 0 && t.IsNew && t.After) set.Add(new([t.TradeId], []));
+            if (t.Packages.Count == 0 && IsCandidate(t)) set.Add(new([t.TradeId], []));
         }
         return set;
     }

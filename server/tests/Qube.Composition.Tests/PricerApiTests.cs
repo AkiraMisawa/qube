@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.AspNetCore.Hosting;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 
@@ -119,6 +120,103 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         (var cleared, ws) = await Taken(ws, "xva.cases.clear", []);
         Assert.Equal("Removed 1 case: CSA-A threshold 5mm.", cleared);
         Assert.Equal(["Base"], ws["cases"]!.AsArray().Select(c => c!["title"]!.GetValue<string>()));
+    }
+
+    [Fact] // ADR-0016 notes 94 and 96: Make package…'s dialog is told which trades a package would add and which it would take out, a New row in Before among the second, at the revision the page shows; a workspace moved since, no revision, a trade the workspace does not hold, one named twice and none at all are refused by name
+    public async Task Package_roles_say_a_new_row_in_before_is_taken_out_as_an_existing_trade_is()
+    {
+        var ws = await Create();
+        var booked = await Post(ws, "edits", new { revision = Revision(ws), entity = "trade:DRAFT-2", field = "before", value = true });
+        Assert.Equal(HttpStatusCode.OK, booked.StatusCode);
+        ws = (await booked.Content.ReadFromJsonAsync<JsonObject>())!;
+        var existing = (await (await Post(ws, "rows", new { start = 0, count = 1, sorts = Array.Empty<object>(), grid = "existing" })).Content.ReadFromJsonAsync<JsonObject>())!["rows"]![0]!["tradeId"]!.GetValue<string>();
+
+        var at = Revision(ws);
+        var roles = await Post(ws, "package-roles", new { revision = at, trades = new[] { "draft-1", "DRAFT-2", existing } });
+        var moved = await Post(ws, "package-roles", new { revision = at - 1, trades = new[] { "DRAFT-1" } });
+        var unread = await Post(ws, "package-roles", new { trades = new[] { "DRAFT-1" } });
+        var unknown = await Post(ws, "package-roles", new { revision = at, trades = new[] { "DRAFT-1", "NOPE-1" } });
+        var twice = await Post(ws, "package-roles", new { revision = at, trades = new[] { "DRAFT-1", "draft-1" } });
+        var none = await Post(ws, "package-roles", new { revision = at, trades = Array.Empty<string>() });
+
+        Assert.Equal(HttpStatusCode.OK, roles.StatusCode);
+        var said = (await roles.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(["DRAFT-1"], Strings(said["adds"]));
+        Assert.Equal(["DRAFT-2", existing], Strings(said["takesOut"]));
+        Assert.Contains("No trade NOPE-1 in this workspace.", await unknown.Content.ReadAsStringAsync());
+        Assert.Contains("DRAFT-1 is named twice.", await twice.Content.ReadAsStringAsync());
+        Assert.Contains("NothingGiven", await none.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Conflict, moved.StatusCode);
+        Assert.Contains($"The workspace is at revision {at}, not {at - 1}.", await moved.Content.ReadAsStringAsync());
+        Assert.Contains("Name the revision the page shows", await unread.Content.ReadAsStringAsync());
+        Assert.All(new[] { unread, unknown, twice, none }, r => Assert.Equal(HttpStatusCode.UnprocessableEntity, r.StatusCode));
+    }
+
+    [Fact] // ADR-0010 §3's note of 2026-11-19 (owner: what will run is seen before Price starts): the price plan lists every case as the Run will title it at the revision the page shows, and a plan or a Price at a revision the workspace has moved from is refused, never listed or priced unseen
+    public async Task The_price_plan_lists_every_case_and_price_at_its_revision_is_refused_once_the_workspace_moved()
+    {
+        var ws = await Create();
+        ws = await Measures(ws, "cva", "fva");
+        (_, ws) = await Taken(ws, "xva.trades.add", new JsonObject { ["package"] = "P1", ["trades"] = new JsonArray("DRAFT-1", "DRAFT-2") });
+        (_, ws) = await Taken(ws, "xva.vary", new JsonObject { ["cell"] = "CSA-A threshold", ["values"] = "5mm" });
+
+        var plan = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Id(ws)}/price-plan?revision={Revision(ws)}"))!;
+        var unread = await client.GetAsync($"/api/xva/workspaces/{Id(ws)}/price-plan");
+
+        Assert.Equal(Revision(ws), plan["revision"]!.GetValue<long>());
+        Assert.Equal(["CVA", "FVA"], Strings(plan["measures"]));
+        Assert.Equal(["Base", "P1: add DRAFT-1 + DRAFT-2", "add DRAFT-3", "CSA-A threshold 5mm"], plan["cases"]!.AsArray().Select(c => c!["title"]!.GetValue<string>()));
+        Assert.Single(Strings(plan["markets"]));
+        Assert.True(plan["before"]!.GetValue<bool>() && plan["after"]!.GetValue<bool>());
+        Assert.Empty(plan["refused"]!.AsArray());
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, unread.StatusCode);
+
+        // The workspace moves after the plan was read: the plan read again at that revision, and Price at it, are
+        // refused before anything is frozen.
+        (_, var moved) = await Taken(ws, "xva.case.remove", new JsonObject { ["case"] = "CSA-A threshold 5mm" });
+        var stalePlan = await client.GetAsync($"/api/xva/workspaces/{Id(ws)}/price-plan?revision={Revision(ws)}");
+        var stale = await Command(ws, "xva.workspace.price", []);
+        Assert.Equal((HttpStatusCode.Conflict, HttpStatusCode.Conflict), (stalePlan.StatusCode, stale.StatusCode));
+        Assert.Contains("RevisionMoved", await stalePlan.Content.ReadAsStringAsync());
+        Assert.Contains("RevisionMoved", await stale.Content.ReadAsStringAsync());
+
+        // A plan Price would refuse is refused as Price refuses it.
+        var unticked = await Post(moved, "edits", new { revision = Revision(moved), entity = "trade:DRAFT-3", field = "after", value = false });
+        Assert.Equal(HttpStatusCode.OK, unticked.StatusCode);
+        var now = (await unticked.Content.ReadFromJsonAsync<JsonObject>())!;
+        var refused = await client.GetAsync($"/api/xva/workspaces/{Id(now)}/price-plan?revision={Revision(now)}");
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        Assert.Contains("AdditionSetChanged", await refused.Content.ReadAsStringAsync());
+    }
+
+    [Fact] // ADR-0010 §6's note of 2026-11-21: a PV01 still being calculated once Price has waited its time refuses the plan and Price alike as a conflict the same request may be made again on, through the page's door and the command door
+    public async Task Price_and_its_plan_still_waiting_are_refused_as_a_conflict_to_retry()
+    {
+        // The PV01 engine answers long after Price's wait has run out.
+        using var host = new QubeFactory();
+        using var waiting = host.WithWebHostBuilder(b => b.UseSetting("Xva:Pv01DelayMilliseconds", "600000").UseSetting("Portfolio:CellWaitMilliseconds", "100"));
+        var http = waiting.CreateClient();
+        var response = await http.PostAsJsonAsync("/api/xva/workspaces", new { registration = "ABC/LE-01", valueDate = "2026-10-26", portfolioSize = 10 });
+        var ws = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
+        _ = await http.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Id(ws)}");
+
+        var plan = await http.GetAsync($"/api/xva/workspaces/{Id(ws)}/price-plan?revision={Revision(ws)}");
+        var price = await http.PostAsJsonAsync("/api/commands/xva.workspace.price/1.0.0", new
+        {
+            inputs = new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = Id(ws), ["revision"] = Revision(ws) } },
+            idempotencyKey = Guid.NewGuid().ToString(),
+        });
+
+        foreach (var refused in new[] { plan, price })
+        {
+            Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+            var envelope = (await refused.Content.ReadFromJsonAsync<JsonObject>())!;
+            Assert.Equal(("CellPending", true), (envelope["code"]!.GetValue<string>(), envelope["retryable"]!.GetValue<bool>()));
+            Assert.Equal("PV01 of DRAFT-1, DRAFT-2 and DRAFT-3 are still being calculated. Price waited 0.1 s for the calculation: price again once it has finished.",
+                envelope["message"]!.GetValue<string>());
+        }
+        var runs = (await http.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Id(ws)}"))!["runs"]!.AsArray();
+        Assert.Empty(runs);
     }
 
     [Fact] // docs/03 §5, ADR-0010 §3's note of 2026-11-08: add each over HTTP makes the set, and Price refuses a set the ticked rows left

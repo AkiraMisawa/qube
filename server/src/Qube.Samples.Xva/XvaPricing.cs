@@ -69,6 +69,16 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
 
     public IReadOnlyList<MeasureDefinition> Measures => Definitions;
 
+    /// <summary>The PV01 of each of these new trades answered or failed (ADR-0010 §6's note of 2026-11-21); no other trade's.</summary>
+    public Task Answered(WorkspaceState state, IReadOnlyList<EffectiveTrade> trades) => pv01.Answered(Requests(state, trades));
+
+    // What each new trade's PV01 is asked on; an existing trade has none.
+    static IEnumerable<Pv01Request> Requests(WorkspaceState state, IEnumerable<EffectiveTrade> trades)
+    {
+        var source = PortfolioSourceVersion.Of(state);
+        return trades.Where(t => t.IsNew).Select(t => Pv01Request.Of(t, source.ValueDate));
+    }
+
     public IReadOnlyList<TradeColumn> TradeColumns { get; } =
         [new(Pv01, "PV01", "amount", false), new(Margin, "Margin (bp)", "number", true), new(PvAdj, "PV Adj", "amount", true)];
 
@@ -145,11 +155,7 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
         _ => $"{column} is a result; it is not typed.",
     };
 
-    public int Retry(WorkspaceState state, IReadOnlyList<EffectiveTrade> trades)
-    {
-        var source = PortfolioSourceVersion.Of(state);
-        return pv01.Retry(trades.Where(t => t.IsNew).Select(t => Pv01Request.Of(t, source.ValueDate)));
-    }
+    public int Retry(WorkspaceState state, IReadOnlyList<EffectiveTrade> trades) => pv01.Retry(Requests(state, trades));
 
     static string Amount(decimal value) => value.ToString("#,0.##", CultureInfo.InvariantCulture);
 

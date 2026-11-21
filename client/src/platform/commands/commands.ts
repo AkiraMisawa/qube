@@ -109,6 +109,9 @@ export type Entered = LineReason | KeyboardMoved | undefined;
 /** What a command is asked, beside the workspace and the revision its door adds. */
 export type CommandRequest = Readonly<Record<string, unknown>>;
 
+/** A request as a door is given it: made already, or made in the page's turn of the revision it is sent at. */
+export type DoorRequest = CommandRequest | ((revision: number) => CommandRequest);
+
 /**
  * What a page gives the command line for the workspace it shows (ADR-0016 §5): where the commands the server reads
  * act, and how they are run so that they follow the edits the page has already sent.
@@ -151,7 +154,7 @@ export interface CommandDoor {
    * function: it is made in the turn, of the revision it is sent at, so an edit still on its way when the button was
    * pressed is in it (spine 6); one that throws sends nothing, and its message is the reason.
    */
-  invoke(capabilityId: string, request: CommandRequest | ((revision: number) => CommandRequest), heard?: (said: string) => void): Promise<LineReason | undefined>;
+  invoke(capabilityId: string, request: DoorRequest, heard?: (said: string) => void): Promise<LineReason | undefined>;
   /**
    * Reads an open draft again (ADR-0016 note 57 of 2026-11-12), for one the workspace has left: the page reads the
    * workspace, and the draft keeps its lines at the revision it then stands at, where the server reads them anew.

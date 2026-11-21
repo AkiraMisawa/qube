@@ -411,6 +411,11 @@ export interface XvaWorkspaceView {
   readonly inputs: readonly MeasureInput[];
   /** How many of those cells on the new trades still wait for a result: the page asks again while any does. */
   readonly pendingCells: number;
+  /**
+   * What Price waits on, as the server says it: a cell still being calculated on a new trade in Before or After, such
+   * as a PV01 the engine has not answered (ADR-0010 §6's note of 2026-11-21). Absent when Price waits on nothing.
+   */
+  readonly priceWaits?: string;
   /** The currency the figures are shown in, and those it may be (ADR-0010 §1). */
   readonly displayCurrency: string;
   /**
@@ -460,5 +465,37 @@ export interface CarrySummary { readonly carried: number; readonly conflicted: n
 
 /** What a counterparty change would drop, by kind, and the revision it was counted at (ADR-0016 note 100). */
 export interface ScopeDrop { readonly scope: string; readonly count: number; readonly byKind: Readonly<Record<string, number>>; readonly revision: number }
+
+/**
+ * A case Price would price, as the Run will title it (ADR-0010 §3's note of 2026-11-19): its title, and the common
+ * change it carries where it carries one (docs/03 §5).
+ */
+export interface PlannedCase {
+  readonly title: string;
+  // A field the server has no value for is left out of its answer, as every empty field of the wire is.
+  readonly note?: string;
+}
+
+/** A measure the input of a case already refuses, which the Run would say of that case, pricing the rest. */
+export interface PlannedRefusal { readonly measure: string; readonly case: string; readonly message: string }
+
+/**
+ * What Price would price at `revision` (ADR-0010 §3's note of 2026-11-19; the owner, the same day: what will run is
+ * seen before Price starts): the measures by title, every case with the Base first, every market with the base market
+ * first, whether Before and After hold a trade, and what is refused already. Price's confirmation lists it, and prices
+ * that revision alone.
+ */
+export interface PricePlan {
+  readonly revision: number;
+  readonly measures: readonly string[];
+  readonly cases: readonly PlannedCase[];
+  readonly markets: readonly string[];
+  readonly before: boolean;
+  readonly after: boolean;
+  readonly refused: readonly PlannedRefusal[];
+}
+
+/** What a package of some trades would do with each (ADR-0016 notes 94 and 96): a New row in Before is taken out, as an existing trade is. */
+export interface PackageRoles { readonly adds: readonly string[]; readonly takesOut: readonly string[] }
 
 export type Resolution = 'reset' | 'keep' | 'takeSource' | 'acknowledge';

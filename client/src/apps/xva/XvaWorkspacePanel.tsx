@@ -14,13 +14,14 @@ import { answeredInOrder, useKeptGrid } from '../../platform/grid/keptGrid';
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerPlaces, type Place } from '../../shell/places';
 import type { XvaApi } from './api';
-import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScopeDrop, ShiftEdit, XvaWorkspaceView } from './contracts';
+import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, PricePlan, ScopeDrop, ShiftEdit, XvaWorkspaceView } from './contracts';
 import { measureNamed, registerXvaPage } from './commands';
 import { commandDoor, registerCommandDoor, tableMenu, type TableMenu } from '../../platform/commands/served';
 import { filterGrid, menuView, pagedView, placeFocus, selectRows, sortGrid, whereOf, type Answered, type ScreenGrid } from '../../platform/grid/lineView';
 import { GridFilterLine, type FilterSaid } from '../../platform/grid/GridFilterLine';
 import { useWhere, type Heard } from '../../platform/grid/heldFilter';
-import type { CommandRequest, Screen } from '../../platform/commands/commands';
+import type { DoorRequest, Screen } from '../../platform/commands/commands';
+import { ApiError } from '../../platform/api';
 import type { LineView } from '../../platform/contracts';
 import { XvaResult } from './XvaResult';
 import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform/traces/open';
@@ -36,6 +37,7 @@ import type { ScenarioActions } from './XvaScenarios';
 import type { ChangeActions } from './XvaChanges';
 import { VARY_COMMAND, VaryDialog, type VaryTarget } from './VaryDialog';
 import { PACKAGE_COMMAND, PackageDialog, type Selected } from './PackageDialog';
+import { PriceDialog } from './PriceDialog';
 import { DraftDialog } from '../../platform/drafts/DraftDialog';
 import { useDraft } from '../../platform/drafts/useDraft';
 import { EDIT_ROW, editColumn, openRow } from '../../platform/drafts/rowButton';
@@ -298,6 +300,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const menus = useRef<{ readonly trades: TableMenu; readonly csas: TableMenu }>({ trades: NO_MENU, csas: NO_MENU });
   const [busy, setBusy] = useState<string | undefined>(undefined);
   const [confirm, setConfirm] = useState<{ readonly registration: string; readonly drop: ScopeDrop } | undefined>(undefined);
+  // What Price would price, while its confirmation is open (ADR-0010 §3's note of 2026-11-19).
+  const [pricing, setPricing] = useState<PricePlan | undefined>(undefined);
   // Why each trade grid's rows could not be read, until its reader answers again: a grid's own, so that the other's
   // answer does not take it back.
   const [failure, setFailure] = useState<Readonly<Record<TradeGrid, string | undefined>>>(NOT_FAILED);
@@ -574,12 +578,12 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     invokedBusy('Counterparty changed', 'xva.counterparty.change', { registration, drops: drop.count, revision: drop.revision }, 'The counterparty was not changed');
 
   /** A control's command through the door (ADR-0016 §5): a refusal is a notice that opens with what was not done. */
-  const invoked = async (capability: string, request: CommandRequest, notDone: string) => {
+  const invoked = async (capability: string, request: DoorRequest, notDone: string) => {
     const reason = await door.invoke(capability, request);
     if (reason !== undefined) workspace.notify('refused', `${notDone}: ${reason.sentence}`);
   };
   /** A toolbar button's command, the toolbar held while it runs: its button turns, and the others wait. */
-  const invokedBusy = async (label: string, capability: string, request: CommandRequest, notDone: string) => {
+  const invokedBusy = async (label: string, capability: string, request: DoorRequest, notDone: string) => {
     setBusy(label);
     try {
       await invoked(capability, request, notDone);
@@ -593,7 +597,38 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * in that turn, and the dock shows its latest Run, which is the one just accepted; the figures stay on the page
    * (XvaResult), and the Run itself opens in a panel only when asked.
    */
-  const price = () => invokedBusy('Pricing', 'xva.workspace.price', {}, 'Price was refused');
+  const price = async () => {
+    // What Price would price is read at the revision the page shows once the edits already sent have landed (spine
+    // 6), and listed before it starts (ADR-0010 §3's note of 2026-11-19). A plan Price would refuse is refused here,
+    // with Price's own reason. A workspace moved where the page has not seen it, by the AI or another page, is refused
+    // too, and read again, so the next press lists what the page then shows.
+    setBusy('Pricing');
+    try {
+      setPricing(await queue.after(async (revision) => {
+        try {
+          return await api.pricePlan(workspaceId, revision);
+        } catch (error) {
+          if (error instanceof ApiError && error.envelope.code === 'RevisionMoved') queue.rebase(await readAgain(error));
+          throw error;
+        }
+      }));
+    } catch (error) {
+      workspace.notify('refused', `Price was refused: ${describe(error)}`);
+    } finally {
+      setBusy(undefined);
+    }
+  };
+  /**
+   * The confirmation's Price: the revision it listed and no other. A workspace the page has seen move since sends
+   * nothing; one moved where the page has not seen it yet is refused by the server (spine 6).
+   */
+  const pricePlanned = (plan: PricePlan) => {
+    setPricing(undefined);
+    void invokedBusy('Pricing', 'xva.workspace.price', (revision: number) => {
+      if (revision !== plan.revision) throw new Error('The workspace changed after Price listed its cases. Press Price to see them again.');
+      return { revision: plan.revision };
+    }, 'Price was refused');
+  };
 
   const openRun = (runId: string) => {
     const resultView = workspace.catalog.views.find((v) => v.definitionId === XVA_RESULT_VIEW);
@@ -762,6 +797,17 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    */
   // A row's dialog and its draft (ADR-0016 §10, note 54): view state of this page, which the door reads in its turn.
   const { draft, drafts, drop } = useDraft();
+  // The workspace read again and shown, where it moved where the page did not see it; answers the revision it read.
+  const reread = useCallback(async () => {
+    const fresh = await api.view(workspaceId);
+    // What `refresh` read, or what `undo` put back of it, may have moved the order: the grids start over then.
+    // Otherwise the rows in view are read again where they are.
+    const moved = ownSource.current !== undefined && ownSource.current !== sourceOf(fresh);
+    show(fresh);
+    if (moved) sources.requery();
+    else sources.changed();
+    return fresh.revision;
+  }, [api, workspaceId, show, sources]);
   const door = useMemo(() => commandDoor({
     workspaceId,
     app: XVA_APP,
@@ -770,18 +816,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     turns: queue,
     drafts,
     screen: () => screen.current?.(),
-    reread: async () => {
-      const fresh = await api.view(workspaceId);
-      // What `refresh` read, or what `undo` put back of it, may have moved the order: the grids start over then.
-      // Otherwise the rows in view are read again where they are.
-      const moved = ownSource.current !== undefined && ownSource.current !== sourceOf(fresh);
-      show(fresh);
-      if (moved) sources.requery();
-      else sources.changed();
-      return fresh.revision;
-    },
+    reread,
     notify: workspace.notify,
-  }), [api, workspaceId, workspace, queue, show, sources, drafts]);
+  }), [workspaceId, workspace, queue, reread, drafts]);
+  // A workspace a read was refused for having moved, read again: the revision it stands at, or why it could not be
+  // read, said after the refusal.
+  const readAgain = (moved: Error) => reread().catch((unread: unknown) => {
+    throw new Error(`${moved.message} The page could not read the workspace again: ${describe(unread)}`);
+  });
   // A row's edit button opens its dialog as `open <row>` typed does (ADR-0016 note 57). One function for the page's
   // life while the door is, so no grid is made again for it.
   const editRow = useCallback((table: string, key: string) => { void openRow(door, table, key, workspace.notify); }, [door, workspace]);
@@ -848,7 +890,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const [packaging, setPackaging] = useState<Selected | undefined>(undefined);
   /**
    * Opens *Make package from the selection…* on what the two trade grids' selections name: read by the server, as the
-   * line's `selected` is (ADR-0016 note 17), since it pages the grids and a position means a row only in its order.
+   * line's `selected` is (ADR-0016 note 17), since it pages the grids and a position means a row only in its order, and
+   * each listed as the server says a package would take it.
    * From a Context Menu the grid it opened on is read as the menu has it. Refused, as where a grid's order has moved
    * since its rows were read, the page says why and opens nothing.
    */
@@ -859,8 +902,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       return (await workspace.api.selection(workspaceId, seen)).keys;
     };
     try {
-      const [add, without] = await Promise.all([selected('new'), selected('existing')]);
-      setPackaging({ add, without });
+      const named = (await Promise.all([selected('new'), selected('existing')])).flat();
+      // What a package would do with each trade is the server's to say, at the revision the page shows, which the
+      // press then writes at: a New row in Before is taken out, as an existing trade is (ADR-0016 note 96), whichever
+      // grid it was selected in, and a workspace moved since refuses the press rather than do otherwise than listed.
+      setPackaging(await queue.after(async (revision) => {
+        const roles = named.length === 0 ? { adds: [], takesOut: [] } : await api.packageRoles(workspaceId, revision, named);
+        return { add: roles.adds, without: roles.takesOut, revision };
+      }));
     } catch (error) {
       workspace.notify('refused', `The selection was not read: ${describe(error)}`);
     }
@@ -869,7 +918,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * *Make package*: the dialog's package written on its trades, and add each's set made anew from the cells, in one
    * command (ADR-0016 note 93). Refused, the answer is the server's reason, for the dialog to say.
    */
-  const makePackage = async (name: string, trades: readonly string[]) => (await door.invoke('xva.trades.add', { package: name, trades }))?.sentence;
+  const makePackage = async (name: string, trades: readonly string[], revision: number) =>
+    (await door.invoke('xva.trades.add', { package: name, trades, revision }))?.sentence;
   /**
    * *Vary values…* (ADR-0010 §3): a case per value of the dialog's cell, named by its entity and field, through
    * `xva.vary` as the line's `vary` goes (ADR-0016 note 28), in the page's turn (spine 6). Answers what the server said
@@ -1050,8 +1100,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
             );
           })}
         </div>
-        <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={!notBusy && busy !== 'Pricing'} data-testid="price"
-          {...(blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>{priceLabel(ws.measures, ws.selectedMeasures, ws.cases.length, { before: ws.inBefore > 0, after: ws.inAfter > 0 }, 1 + ws.scenarios.filter((x) => x.included).length)}</Button>
+        {/* Price waits while a cell it reads is still being calculated (ADR-0010 §6's note of 2026-11-21; the owner: Price
+            is not pressed while data is loading): the button cannot be pressed and says why, and the status line says it
+            where a touch screen reads it. The server decides it, and Price waits for it however it is asked. */}
+        <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={(!notBusy && busy !== 'Pricing') || ws.priceWaits !== undefined} data-testid="price"
+          {...(ws.priceWaits !== undefined ? { title: ws.priceWaits } : blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>{priceLabel(ws.measures, ws.selectedMeasures, ws.cases.length, { before: ws.inBefore > 0, after: ws.inAfter > 0 }, 1 + ws.scenarios.filter((x) => x.included).length)}</Button>
       </div>
       {/* The status line: what the figures stand on, and SIMULATED while a provider is. */}
       <Group gap="xs" wrap="wrap" className="qube-xva-status">
@@ -1059,6 +1112,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         <Text size="xs">{ws.agreement.maId} · {ws.agreement.collateralised ? `main CSA ${ws.agreement.mainCsaId}` : ws.agreement.noCsa}</Text>
         {/* Said where it is read on every width, a touch screen's too: the control's title is a pointer's alone. */}
         <Text size="xs" data-testid="display-currency-from">{currencyFrom(ws.displayCurrency, ws.displayCurrencyFrom)}</Text>
+        {ws.priceWaits !== undefined && <Text size="xs" data-testid="price-waits">{ws.priceWaits}</Text>}
         {ws.simulated.length > 0 && (
           <Badge variant="light" color="yellow" data-testid="simulated" title={`Figures from a simulated provider: ${ws.simulated.join(', ')}. They are not a model of anything.`}>SIMULATED</Badge>
         )}
@@ -1073,6 +1127,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
           changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} csaMenu={menus} onEditRow={editRow} />
         <VaryDialog target={varying} vary={varyCell} onClose={() => setVarying(undefined)} />
         <PackageDialog selection={packaging} packages={ws.packages} next={ws.nextPackage} make={makePackage} onClose={() => setPackaging(undefined)} />
+        <PriceDialog plan={pricing} price={pricePlanned} onClose={() => setPricing(undefined)} />
         <DraftDialog draft={draft} workspaceId={workspaceId} revision={ws.revision} api={workspace.api} door={door} drop={drop} discard={drafts.close} note={draftNote} />
         {inputsOpen && <Resizer label="Height of the input tabs" value={inputsHeight} min={48} max={640} grows="down" onChange={setInputsDragged} />}
       </div>

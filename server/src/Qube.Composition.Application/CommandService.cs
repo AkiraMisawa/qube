@@ -38,6 +38,12 @@ public sealed class CommandService(CompositionRegistry registry, IDataReader dat
             outcome = result is CommandResult.Refused refused ? refused.Code : "done";
             return result;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller went away: the command answered nobody, and the workbench did not fail.
+            outcome = "cancelled";
+            throw;
+        }
         catch (Exception failure)
         {
             activity?.SetStatus(ActivityStatusCode.Error, failure.Message);
@@ -65,14 +71,30 @@ public sealed class CommandService(CompositionRegistry registry, IDataReader dat
         if (issues.Count > 0) return new CommandResult.Refused("ValidationFailed", issues);
 
         var request = $"{capabilityId}@{version}:{inputs.ToJsonString()}";
-        var entry = done.GetOrAdd((caller.UserId, idempotencyKey),
-            _ => (request, new Lazy<Task<CommandResult>>(() => Invoke(handler, inputs, caller, idempotencyKey, cancellationToken))));
+        var mine = (request, new Lazy<Task<CommandResult>>(() => Invoke(handler, inputs, caller, idempotencyKey, cancellationToken)));
+        var entry = done.GetOrAdd((caller.UserId, idempotencyKey), mine);
         if (entry.Request != request)
             return Refuse("IdempotencyConflict", "IdempotencyConflict", "/idempotencyKey", "This key was used for another command or other inputs.");
+        // A request that finds its key taken joins the command running under it, and stops waiting when its own caller
+        // goes away; the command made it runs on its own caller's token.
+        var joined = !ReferenceEquals(entry.Result, mine.Item2);
+        var running = entry.Result.Value;
         CommandResult result;
         try
         {
-            result = await entry.Result.Value;
+            result = await (joined ? running.WaitAsync(cancellationToken) : running);
+        }
+        catch when (!running.IsCompleted || running.IsCompletedSuccessfully)
+        {
+            // This caller went away while the command ran on, or as it finished: the key stays with that command.
+            throw;
+        }
+        catch (OperationCanceledException) when (joined && !cancellationToken.IsCancellationRequested)
+        {
+            // The command this request joined was cancelled by its own caller, as one that waits, such as Price, can be.
+            // A failed command frees its key, so this caller, still waiting, acts on it itself.
+            done.TryRemove(new((caller.UserId, idempotencyKey), entry));
+            return await InvokeOnceAsync(capabilityId, version, inputs, caller, idempotencyKey, cancellationToken);
         }
         catch
         {

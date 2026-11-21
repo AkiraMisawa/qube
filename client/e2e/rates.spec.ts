@@ -161,15 +161,27 @@ test('C40, docs/07: a line typed by keyboard ticks live, is captured and priced 
   await expect(page.getByTestId('live-toggle')).toHaveText('Resume live');
 });
 
-test('docs/07 §3, ADR-0016 note 36: the Price button prices on the market the page shows, though a later one is published; Add CCS runs `add line ccs`', async ({ page }) => {
+test('docs/07 §3, ADR-0016 note 36, ADR-0010 §6\'s note of 2026-11-21: the Price button cannot be pressed until the market is read, then prices on the market the page shows, though a later one is published; Add CCS runs `add line ccs`', async ({ page }) => {
   await open(page);
-  // The page's reading of the market is held at the first it shows, while the server's market moves on.
+  // The page's first reading of the market waits until the test lets it through; then it is held at the first it
+  // shows, while the server's market moves on.
+  let release: (() => void) | undefined;
+  const read = new Promise<void>((resolve) => { release = resolve; });
   let held: { readonly snapshotId: string } | undefined;
   await page.route('**/api/rates/market', async (route) => {
+    await read;
     held ??= await (await route.fetch()).json() as { readonly snapshotId: string };
     await route.fulfill({ json: held });
   });
   await newWorkspace(page);
+  // Price is not pressed while the market it prices on is still loading (the owner, 2026-11-21), and says why.
+  const price = page.getByRole('button', { name: 'Price' });
+  await expect(page.getByTestId('market')).toHaveText('no market yet');
+  await expect(price).toBeDisabled();
+  await expect(price).toHaveAttribute('title', 'The market is still loading; Price waits for it.');
+  if (release === undefined) throw new Error('The market read was never held.');
+  release();
+  await expect(price).toBeEnabled();
   await taken(page, 'new', 'irs jpy 10mm 5y pay');
   await expect(summary(page)).toContainText('1 line(s)');
   await expect(page.getByTestId('market')).toHaveText(/^market \S+ #\d+$/);
@@ -178,7 +190,7 @@ test('docs/07 §3, ADR-0016 note 36: the Price button prices on the market the p
   // A later snapshot is published: the latest is no longer the one the page shows.
   await expect.poll(async () => (await (await page.request.get(new URL('/api/rates/market', page.url()).href)).json() as { snapshotId: string }).snapshotId).not.toBe(shown);
 
-  await page.getByRole('button', { name: 'Price' }).click();
+  await price.click();
   await expect(notice(page)).toHaveText(/^Price was accepted as Run \S+\.$/);
   // The Run's panel is titled by the market it priced on: the one the page showed.
   // A strip's tab is named by its title and its close button, an area's by its title alone (ADR-0018 §1).

@@ -1,5 +1,5 @@
 import { call } from '../../platform/api';
-import type { CdsCatalogue, ChangesList, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScopeDrop, ShiftEdit, XvaWorkspaceView } from './contracts';
+import type { CdsCatalogue, ChangesList, EffectiveTrade, PackageRoles, PricePlan, Registration, Agreement, Resolution, RowPage, ScopeDrop, ShiftEdit, XvaWorkspaceView } from './contracts';
 
 export interface RowQuery {
   readonly start: number;
@@ -35,6 +35,16 @@ export interface XvaApi {
   setChange(workspaceId: string, revision: number, entity: string, field: string, text: string, caseId?: string): Promise<XvaWorkspaceView>;
   /** What a change of counterparty would drop, by kind, for the toolbar's confirmation (ADR-0003 §6). */
   previewCounterpartyChange(workspaceId: string): Promise<ScopeDrop>;
+  /**
+   * What Price would price at the revision the page shows, for Price's confirmation (ADR-0010 §3's note of 2026-11-19);
+   * refused (`RevisionMoved`) where the workspace has moved from it.
+   */
+  pricePlan(workspaceId: string, revision: number): Promise<PricePlan>;
+  /**
+   * Which of the trades named a package would add and which it would take out, at the revision the page shows, for
+   * *Make package…* (ADR-0016 note 96); refused (`RevisionMoved`) where the workspace has moved from it.
+   */
+  packageRoles(workspaceId: string, revision: number, trades: readonly string[]): Promise<PackageRoles>;
   /** The Scenarios grid's edits as one batch (ADR-0010 §4): a cell typed, a block pasted, or cells cleared. */
   editShifts(workspaceId: string, revision: number, rows: readonly ShiftEdit[]): Promise<XvaWorkspaceView>;
   /** The CDS catalogue the Credit tab searches: its single names, a proxy's keys and the tenors. */
@@ -56,6 +66,8 @@ export const httpXvaApi: XvaApi = {
   setChange: (workspaceId, revision, entity, field, text, caseId) =>
     post(`${base(workspaceId)}/changes`, { revision, entity, field, text, ...(caseId === undefined ? {} : { case: caseId }) }),
   previewCounterpartyChange: (workspaceId) => call(`${base(workspaceId)}/counterparty-change`),
+  pricePlan: (workspaceId, revision) => call(`${base(workspaceId)}/price-plan?revision=${revision}`),
+  packageRoles: (workspaceId, revision, trades) => post(`${base(workspaceId)}/package-roles`, { revision, trades }),
   editShifts: (workspaceId, revision, rows) => post(`${base(workspaceId)}/shifts`, { revision, rows }),
   cdsCatalogue: () => call('/api/xva/cds'),
   quote: (runId, scenario) => call(`/api/xva/runs/${encodeURIComponent(runId)}/quote${scenario === undefined ? '' : `?scenario=${encodeURIComponent(scenario)}`}`),

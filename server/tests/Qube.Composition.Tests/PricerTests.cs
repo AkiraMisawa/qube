@@ -464,10 +464,12 @@ public class PricerTests
         Assert.Equal(RunStatus.Succeeded, run.Status);
     }
 
-    [Fact] // ADR-0010 §6 (DEFAULT): with Margin entered and PV01 pending, XVA's measures are refused by name at Price
-    public async Task Margin_with_pv01_pending_refuses_xvas_measures()
+    [Fact] // ADR-0010 §6 (DEFAULT): with Margin entered and PV01 failed, XVA's measures are refused by name at Price
+    public async Task Margin_with_pv01_failed_refuses_xvas_measures()
     {
-        var (service, runs, store, _) = Priced(new XvaMeasures(new Pv01Provider((_, _) => new TaskCompletionSource<decimal>().Task)));
+        // A PV01 still being calculated is waited for, never priced (ADR-0010 §6's note of 2026-11-21): one that failed
+        // is what leaves a PV Adj unknown at Price.
+        var (service, runs, store, _) = Priced(new XvaMeasures(new Pv01Provider((_, _) => Task.FromException<decimal>(new InvalidOperationException("The engine is down.")), onReaderThread: true)));
         var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
         ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-2", "xva.margin", 2m);
 
@@ -477,7 +479,7 @@ public class PricerTests
         var rows = all.Where(r => r["measure"]!.GetValue<string>() != CcrMeasures.SpotCapital).ToList();
         Assert.Equal(5, rows.Count);
         Assert.All(all.Except(rows), r => Assert.Equal("priced", r["afterStatus"]!.GetValue<string>()));
-        Assert.All(rows, r => Assert.Equal(("refused", "PV Adj of DRAFT-2 is unknown: From Margin: PV01 is pending."),
+        Assert.All(rows, r => Assert.Equal(("refused", "PV Adj of DRAFT-2 is unknown: From Margin: PV01 failed: The engine is down."),
             (r["afterStatus"]!.GetValue<string>(), r["reason"]!.GetValue<string>())));
         Assert.All(rows, r => Assert.Null(r["after"]));
     }
@@ -485,15 +487,17 @@ public class PricerTests
     [Fact] // XV13, ADR-0010 §6: a retry of Price with its key is the same Run though a PV01 answered between the two
     public async Task A_retried_price_is_the_same_run_after_a_pv01_answered()
     {
-        var answer = new TaskCompletionSource<decimal>();
-        var pv01 = new Pv01Provider((_, _) => answer.Task);
+        // A PV01 that failed, then answered when asked again: a PV01 still being calculated is waited for, not priced.
+        var down = true;
+        var pv01 = new Pv01Provider((_, _) => down ? Task.FromException<decimal>(new InvalidOperationException("The engine is down.")) : Task.FromResult(-1_500m), onReaderThread: true);
         var (service, runs, _, _) = Priced(new XvaMeasures(pv01));
         var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
-        Assert.Equal(TradeCell.Pending, Cell(service, ws, "DRAFT-1", XvaMeasures.Pv01).State);
+        Assert.Equal(TradeCell.Failed, Cell(service, ws, "DRAFT-1", XvaMeasures.Pv01).State);
 
         var first = Assert.IsType<SubmissionResult.Accepted>(service.Price(ws.WorkspaceId, ws.Revision, "akira", "k1"));
-        answer.SetResult(-1_500m);
-        await pv01.Settled();
+        down = false;
+        Assert.Equal(3, service.Retry(ws.WorkspaceId, ws.Revision, "akira"));
+        Assert.Equal(-1_500m, Cell(service, ws, "DRAFT-1", XvaMeasures.Pv01).Value!.GetValue<decimal>());
         var retry = service.Price(ws.WorkspaceId, ws.Revision, "akira", "k1");
 
         Assert.Equal(first.Run.RunId, Assert.IsType<SubmissionResult.Accepted>(retry).Run.RunId);
