@@ -403,6 +403,18 @@ the first case of a measure's membership, which every measure now declares (§10
   not is headed by its title over `Diff`. Since the heading names no side, a Run with one side alone names it in each
   cell of that column (`After -169,598`), as a case with no Diff does above; this replaces the one column headed by
   the side the dock draws (DEFAULT).
+  *The same day, the owner's third answer ("not charge or rebate: switch it by the sign"):* the heading in tiers is
+  withdrawn. A metric shown by its Diff alone is headed by its title alone, `CVA Charge`, one cell standing in both rows
+  with no side under it, whether or not it registers words; this replaces both the heading in tiers and the title over
+  `Diff`. **Each figure says by its sign which it is**: `Charge` beside a figure below zero, where the case adds CVA
+  cost, as CVA is negative here, and `Rebate` beside one above zero, where it takes cost away (`Charge -172,632`,
+  `Rebate 7,649`). The header cannot switch, since its cases may differ in sign, so the word is each cell's. It reads
+  the figure as shown, so a figure shown as 0 is neither, and a word never disagrees with its minus sign. The figure
+  keeps its sign, as every other figure in the Metrics does (DEFAULT). A metric registers the words (`signWords`, a word
+  below zero and one above, §10's results); only one shown by its Diff alone may, and the server refuses a blank word,
+  naming the metric. Where a case has no Diff, the side is named: an After, where Before held nothing, is what the case
+  adds and is said by its sign (`Charge (After) -169,598`); a Before alone is a level the case takes away, so it is
+  named and said neither (`Before -125`) (DEFAULTs).
 - **Collapsed**, one line per case with each selected measure's headline Diff: CVA Diff and FVA Diff when XVA is
   selected (owner), MVA when it exists.
 - A result older than the workspace says so in yellow: `revision 5 · workspace now 7`.
@@ -539,7 +551,7 @@ that owns a measure registers it with:
 - **results**: its Metrics columns, any result tab of its own, and whether a Metrics cell opens a trace (ADR-0011).
   *(Note of 2026-11-08: a result tab is an id, a title and a view; spot IM's is `SIMM` and spot CCR capital's `CCR`,
   both drawing their trace, §7's note.)* *(Note of 2026-11-21: a metric may be shown by its Diff alone, one column of
-  the Metrics under a heading of its own, as CVA Charge is, §7's note.)*;
+  the Metrics under its title, each figure said by its sign in words it registers, as CVA Charge is, §7's note.)*;
 - **validation**: what Price needs from it, refused by name. A measure that cannot be priced blocks only itself: a
   missing CDS blocks CVA, not spot IM;
 - **options and commands** of its own.
@@ -574,7 +586,8 @@ What was XVA's in this ADR, gathered:
   included, advanced
   configuration.
 - **Trade columns**: PV01, Margin and PV Adj (§6).
-- **Results**: CVA Charge in Metrics, by its Diff alone under `CVA charge` / `or rebate` (§7's note of 2026-11-21),
+- **Results**: CVA Charge in Metrics, by its Diff alone, each figure said a `Charge` or a `Rebate` by its sign (§7's
+  note of 2026-11-21),
   the Risks and Profile tabs (the SIMM and capital profiles MVA and KVA return included, without a trace: only spot
   figures are drilled down), and Copy quote (§7).
 - **Validation**: a missing CDS blocks CVA and CVA Charge (DEFAULT).

@@ -59,9 +59,10 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
     public static IReadOnlyList<MeasureDefinition> Definitions { get; } =
     [
         // The request that prices CVA also values the portfolio: its PV is the value a case adds, which Copy quote quotes
-        // beside the charge (ADR-0010 §7). The charge is what a case adds, so the Metrics show its Diff alone, headed in
-        // two tiers as the charge, or the rebate where the case takes risk away (owner, 2026-11-21, §7's note).
-        new(Cva, "CVA", [new("cva", "CVA"), new("cvaCharge", "CVA Charge", DiffOnly: true, Heading: ["CVA charge", "or rebate"]), new("pv", "PV")], "cva",
+        // beside the charge (ADR-0010 §7). The charge is what a case adds, so the Metrics show its Diff alone, each figure
+        // said a charge where it adds CVA cost (below zero, as CVA is) and a rebate where it takes it away (owner,
+        // 2026-11-21, §7's note).
+        new(Cva, "CVA", [new("cva", "CVA"), new("cvaCharge", "CVA Charge", DiffOnly: true, SignWords: new("Charge", "Rebate")), new("pv", "PV")], "cva",
             DeclaresMembership: false, Traced: false, Quoted: true,
             Tabs: [RisksTab, ProfileTab]),
         new(Fva, "FVA", [new("fva", "FVA")], "fva", DeclaresMembership: true, Traced: false, Tabs: [RisksTab, ProfileTab]),

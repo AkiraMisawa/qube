@@ -12,29 +12,37 @@ namespace Qube.Samples.Portfolio;
 /// One figure a measure reports, such as CVA's CVA Charge. <paramref name="Term"/> is the term of the measure's trace its
 /// Metrics cell opens, where the trace has several roots, as spot IM's IM-R opens at <c>collect</c> (ADR-0010 §7's note
 /// of 2026-11-08); none opens the trace at its roots. <paramref name="DiffOnly"/> says the Metrics show it by its Diff
-/// alone, one column where the others have Before, After and Diff, as CVA Charge (§7's note of 2026-11-21). It is how
-/// the figure is shown, never what is priced: the request still prices both sides and the Run keeps them.
-/// <paramref name="Heading"/> is that one column's heading, a line a tier of the Metrics header, in place of the title
-/// over <c>Diff</c>: CVA Charge's is <c>CVA charge</c> over <c>or rebate</c> (§7's note of 2026-11-21, second
-/// paragraph). Only a metric shown by its Diff alone has one, and it has a line at least, none of them blank.
+/// alone, one column headed by its title where the others have Before, After and Diff, as CVA Charge (§7's note of
+/// 2026-11-21). It is how the figure is shown, never what is priced: the request still prices both sides and the Run
+/// keeps them. <paramref name="SignWords"/> are the words that column says beside a figure by its sign, as CVA Charge's
+/// <c>Charge</c> below zero and <c>Rebate</c> above (the note's third answer); only a metric shown by its Diff alone has
+/// them, and neither is blank.
 /// </summary>
-public sealed record MetricDefinition(string Id, string Title, string? Term = null, bool DiffOnly = false, IReadOnlyList<string>? Heading = null)
+public sealed record MetricDefinition(string Id, string Title, string? Term = null, bool DiffOnly = false, SignWords? SignWords = null)
 {
-    /// <summary>Whether the Metrics show the metric by its Diff alone; fixed with its heading, never changed apart from it.</summary>
+    /// <summary>Whether the Metrics show the metric by its Diff alone; fixed with its sign words, never changed apart from them.</summary>
     public bool DiffOnly { get; } = DiffOnly;
 
-    /// <summary>The heading of the metric's one Metrics column, a line a tier; none where it is headed by its title over <c>Diff</c>.</summary>
-    public IReadOnlyList<string>? Heading { get; } = HeadingProblem(Id, DiffOnly, Heading) is { } problem
-        ? throw new ArgumentException(problem, nameof(Heading))
-        : Heading;
+    /// <summary>The words said beside a figure by its sign; none where a figure is said by its sign alone.</summary>
+    public SignWords? SignWords { get; } = SignWordsProblem(Id, DiffOnly, SignWords) is { } problem
+        ? throw new ArgumentException(problem, nameof(SignWords))
+        : SignWords;
 
-    static string? HeadingProblem(string id, bool diffOnly, IReadOnlyList<string>? heading) =>
-        heading is null ? null
-        : !diffOnly ? $"Metric {id} has a heading but is not shown by its Diff alone: only its one column takes a heading."
-        : heading.Count == 0 ? $"Metric {id}'s heading has no line."
-        : heading.Any(string.IsNullOrWhiteSpace) ? $"Metric {id}'s heading has a blank line."
+    static string? SignWordsProblem(string id, bool diffOnly, SignWords? words) =>
+        words is null ? null
+        : !diffOnly ? $"Metric {id} has sign words but is not shown by its Diff alone: only its one column says them."
+        : string.IsNullOrWhiteSpace(words.Below) ? $"Metric {id}'s word for a figure below zero is blank."
+        : string.IsNullOrWhiteSpace(words.Above) ? $"Metric {id}'s word for a figure above zero is blank."
         : null;
 }
+
+/// <summary>
+/// The words a Metrics column says beside a figure by its sign as shown (ADR-0010 §7's note of 2026-11-21): <paramref name="Below"/>
+/// where the figure shows a minus sign, <paramref name="Above"/> where it is above zero; a figure shown as 0 has neither.
+/// CVA Charge's are <c>Charge</c> and <c>Rebate</c>: a case that adds CVA cost is charged, one that takes it away rebated.
+/// The metric that registers them refuses a blank one, naming itself.
+/// </summary>
+public sealed record SignWords(string Below, string Above);
 
 /// <summary>
 /// A measure as its module registers it. <paramref name="Headline"/> is the metric the collapsed result line shows.

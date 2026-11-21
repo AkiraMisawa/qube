@@ -4342,25 +4342,29 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
 ## CVA Charge shown by its Diff alone (ADR-0010 §7's note of 2026-11-21)
 
 The owner: CVA Charge needs one column; of Before, After and Diff, Diff is enough. Then, the same day: write CVA
-charge or rebate in two tiers; Diff is not needed.
+charge or rebate in two tiers; Diff is not needed. Then: not "charge or rebate", switch it by the sign.
 
 ### What runs
 
-- The Metrics dock draws CVA Charge as one column, headed `CVA charge` over `or rebate` (sentence case, design guidelines §10) in one header cell standing
-  in both rows, with no `Diff` under it; CVA, PV and FVA keep Before, After and Diff. The collapsed line, Copy quote,
-  the Risks and Profile tabs are unchanged.
-- The heading is XVA's registration too (`heading` on `MetricDefinition`, a line a tier). The server refuses one on a
-  metric not shown by its Diff alone, or with no line or a blank one, where it is registered, and says which; the page
-  draws it as it comes.
+- The Metrics dock draws CVA Charge as one column, headed `CVA Charge` in one header cell standing in both rows, with no
+  `Diff` under it; CVA, PV and FVA keep Before, After and Diff. The collapsed line, Copy quote, the Risks and Profile
+  tabs are unchanged.
+- Each figure in that column says by its sign which it is: `Charge -172,632` below zero, where the case adds CVA cost,
+  and `Rebate 7,649` above; a figure shown as 0 has neither word. The word is read from the figure as shown, so it never
+  disagrees with the minus sign, and the figure keeps its sign as every other Metrics figure does (DEFAULT).
+- The words are XVA's registration too (`signWords` on `MetricDefinition`: `Charge` below zero, `Rebate` above). The
+  server refuses them on a metric not shown by its Diff alone, or a blank one, where they are registered, naming the
+  metric and which; the page says them as they come.
 - A metric's registration says it (`diffOnly` on `MetricDefinition`, ADR-0010 §10's results), so the page names no
   measure: XVA registers CVA Charge so, and every other metric of every module is shown as before.
 - Nothing priced changed. XVA's request prices CVA Charge on both sides, the Run keeps Before, After and Diff, and
   Open run and Download show all three.
-- A Run with no Diff anywhere (`After only: Before was not priced`) names the side in each cell of CVA Charge's one
-  column (`After -169,598`), since its heading names none; a Before-only Run's level is never read as what a case adds
-  (DEFAULT).
+- A Run with no Diff anywhere (`After only: Before was not priced`) names the side after the word in each cell of CVA
+  Charge's one column (`Charge (After) -169,598`), since its title names none. A Before-only Run's level is never read
+  as what a case adds: it is named alone (`Before -125`), and said neither a charge nor a rebate (DEFAULT).
 - A case with no Diff among cases that have one shows in that column what the collapsed line shows for it: the priced
-  side, named beside the figure (`After -188`), or `refused`, `unavailable` or `…`; never a blank or 0 (DEFAULT). The
+  side, named beside the figure (`Charge (After) -188`), or `refused`, `unavailable` or `…`; never a blank or 0. This is
+  a DEFAULT. The
   collapsed line now reads the same function (`caseAdds`), so the two cannot drift; Copy quote holds the same rule
   on the server.
 
@@ -4369,15 +4373,16 @@ charge or rebate in two tiers; Diff is not needed.
 | Check | Result |
 |---|---|
 | `nix develop -c dotnet test server/Qube.slnx` | 1726 passed |
-| `cd client && npm run typecheck && npm test` | typecheck clean; 563 passed in 52 files |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 564 passed in 52 files |
 | `cd client && npx playwright test e2e/xva.spec.ts e2e/credit.spec.ts` (Chromium, the built client served by the host), the six tests that read the Metrics' columns, `--repeat-each=3` | 18 passed |
 
 The new unit tests failed with the one column taken away (the grid's sides, and the cell of a one-sided case), and
 the browser test's new assertion failed against a build drawing CVA Charge's three columns, then passed with it back.
 The browser tests read a Metrics figure by its column's place under a header that now has a cell standing in both
 rows (`metricsColumn` in `e2e/fixtures.ts`), which fails by name for a column the header does not have.
-Looked at in the built client with synthetic data at 1440px in both themes, at 390px, and with After alone; no
-console message.
+The browser tests hold each CVA Charge cell to its word agreeing with its sign (`Charge` with a minus sign, `Rebate`
+with none, 0 with neither). Looked at in the built client with synthetic data at 1440px in both themes, at 390px, with
+After alone, and with a case that takes a trade out (a rebate); no console message.
 
 ### Providers
 
@@ -4387,6 +4392,8 @@ Unchanged: CVA Charge is the simulated engine's (CVA times the charge ratio).
 
 - A case with no Diff among cases that have one is held by unit tests alone: the synthetic portfolios give no such
   Run, since a case's change applies to both of its sides.
+- A rebate is held by unit tests and was looked at in the built client; the browser tests' Runs all add trades, so
+  they meet charges, and hold any rebate they met to the same rule.
 - PV is still shown Before, After and Diff; the owner asked about CVA Charge alone. Making PV one column too is one
   word in XVA's registration.
 - "The metrics shown are chosen per user and kept" (ADR-0010 §7, DEFAULT) is still not built; this is a fixed choice

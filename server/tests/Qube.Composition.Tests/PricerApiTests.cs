@@ -222,30 +222,28 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     }
 
     [Fact] // ADR-0010 §7's note of 2026-11-21: CVA Charge is shown by its Diff alone, and every other metric by Before, After and Diff
-    public async Task CVA_Charge_alone_is_registered_to_be_shown_by_its_Diff_under_a_two_tier_heading()
+    public async Task CVA_Charge_alone_is_registered_to_be_shown_by_its_Diff_said_a_charge_or_a_rebate_by_its_sign()
     {
         var ws = await Create();
 
-        var diffOnly = ws["measures"]!.AsArray().SelectMany(m => m!["metrics"]!.AsArray()
-            .Select(metric => ($"{m["id"]!.GetValue<string>()}.{metric!["id"]!.GetValue<string>()}", metric["diffOnly"]!.GetValue<bool>()))).ToList();
+        var metrics = ws["measures"]!.AsArray().SelectMany(m => m!["metrics"]!.AsArray()
+            .Select(metric => (Key: $"{m["id"]!.GetValue<string>()}.{metric!["id"]!.GetValue<string>()}", Metric: metric!.AsObject()))).ToList();
 
-        Assert.Equal(["cva.cvaCharge"], diffOnly.Where(m => m.Item2).Select(m => m.Item1));
-        Assert.Contains(("cva.cva", false), diffOnly);
-        Assert.Contains(("cva.pv", false), diffOnly);
-        // Its one column is headed in two tiers, and no Diff (the owner's second answer of 2026-11-21).
-        var charge = ws["measures"]!.AsArray()[0]!["metrics"]!.AsArray().Single(m => m!["id"]!.GetValue<string>() == "cvaCharge")!;
-        Assert.Equal(["CVA charge", "or rebate"], charge["heading"]!.AsArray().Select(l => l!.GetValue<string>()));
-        Assert.All(ws["measures"]!.AsArray().SelectMany(m => m!["metrics"]!.AsArray()).Where(m => m!["id"]!.GetValue<string>() != "cvaCharge"),
-            m => Assert.Null(m!["heading"]));
+        Assert.Equal(["cva.cvaCharge"], metrics.Where(m => m.Metric["diffOnly"]!.GetValue<bool>()).Select(m => m.Key));
+        // Below zero the case adds CVA cost and is charged; above, it takes it away and is rebated (the owner's third
+        // answer of 2026-11-21).
+        var words = metrics.Single(m => m.Key == "cva.cvaCharge").Metric["signWords"]!;
+        Assert.Equal(("Charge", "Rebate"), (words["below"]!.GetValue<string>(), words["above"]!.GetValue<string>()));
+        Assert.All(metrics.Where(m => m.Key != "cva.cvaCharge"), m => Assert.Null(m.Metric["signWords"]));
     }
 
-    [Theory] // ADR-0010 §7's note of 2026-11-21, spine 1: a heading a metric cannot be headed by is refused where it is registered, saying why
-    [InlineData(false, new[] { "CVA charge", "or rebate" }, "Metric cvaCharge has a heading but is not shown by its Diff alone")]
-    [InlineData(true, new string[0], "Metric cvaCharge's heading has no line.")]
-    [InlineData(true, new[] { "CVA charge", " " }, "Metric cvaCharge's heading has a blank line.")]
-    public void A_heading_is_refused_on_a_metric_not_shown_by_its_Diff_alone_or_with_no_line_or_a_blank_one(bool diffOnly, string[] heading, string why)
+    [Theory] // ADR-0010 §7's note of 2026-11-21, spine 1: sign words a metric cannot say are refused where it is registered, naming it and why
+    [InlineData(false, "Charge", "Rebate", "Metric cvaCharge has sign words but is not shown by its Diff alone")]
+    [InlineData(true, "", "Rebate", "Metric cvaCharge's word for a figure below zero is blank.")]
+    [InlineData(true, "Charge", " ", "Metric cvaCharge's word for a figure above zero is blank.")]
+    public void Sign_words_are_refused_on_a_metric_not_shown_by_its_Diff_alone_or_when_one_is_blank(bool diffOnly, string below, string above, string why)
     {
-        var refused = Assert.Throws<ArgumentException>(() => new MetricDefinition("cvaCharge", "CVA Charge", DiffOnly: diffOnly, Heading: heading));
+        var refused = Assert.Throws<ArgumentException>(() => new MetricDefinition("cvaCharge", "CVA Charge", DiffOnly: diffOnly, SignWords: new(below, above)));
 
         Assert.StartsWith(why, refused.Message);
     }

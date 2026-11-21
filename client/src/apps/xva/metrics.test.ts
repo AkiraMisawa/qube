@@ -6,7 +6,7 @@ import { columnLabel, diffOf, headlines, inMarket, marketsOf, metricsGrid, metri
 // Diff, and a status in words where there is no figure. Every name and figure is synthetic.
 
 const register: readonly RegisteredMeasure[] = [
-  { id: 'cva', title: 'CVA', module: 'xva', request: 'xva', metrics: [{ id: 'cva', title: 'CVA', diffOnly: false }, { id: 'cvaCharge', title: 'CVA Charge', diffOnly: true, heading: ['CVA charge', 'or rebate'] }], headline: 'cva', declaresMembership: false, traced: false, quoted: true, tabs: [] },
+  { id: 'cva', title: 'CVA', module: 'xva', request: 'xva', metrics: [{ id: 'cva', title: 'CVA', diffOnly: false }, { id: 'cvaCharge', title: 'CVA Charge', diffOnly: true, signWords: { below: 'Charge', above: 'Rebate' } }], headline: 'cva', declaresMembership: false, traced: false, quoted: true, tabs: [] },
   { id: 'fva', title: 'FVA', module: 'xva', request: 'xva', metrics: [{ id: 'fva', title: 'FVA', diffOnly: false }], headline: 'fva', declaresMembership: false, traced: false, quoted: false, tabs: [] },
 ];
 
@@ -134,35 +134,54 @@ describe('metricsGrid', () => {
       ['CVA', ['before', 'after', 'diff']], ['CVA Charge', ['diff']], ['FVA', ['before', 'after', 'diff']],
     ]);
     const charge = grid.rows[0]!.cells['cva.cvaCharge']!;
-    expect(shownCell(charge, 'diff')).toEqual({ text: '-63', status: 'priced', negative: true });
+    expect(shownCell(charge, 'diff')).toEqual({ text: '-63', status: 'priced', negative: true, note: 'Charge' });
     // The Run keeps both sides: only the dock leaves them out.
     expect([charge.before.text, charge.after.text]).toEqual(['-125', '-188']);
   });
 
-  it("ADR-0010 §7's note of 2026-11-21: the one column is headed in tiers as registered, with no Diff under it, and the others by their title and side", () => {
+  it("ADR-0010 §7's note of 2026-11-21: the one column is headed by its title alone, naming no side, and the others by their title and side", () => {
     const grid = metricsGrid(metricsTable(register, ['cva', 'fva'], { xva: answered([row('cva', 'cva', -100, -150), row('cva', 'cvaCharge', -125, -187.5), row('fva', 'fva', -10, -12)]) }));
     const [cva, charge] = grid.columns;
 
-    expect(charge!.heading).toEqual(['CVA charge', 'or rebate']);
-    expect(columnLabel(charge!, 'diff')).toBe('CVA charge or rebate');
-    expect([cva!.heading, columnLabel(cva!, 'after')]).toEqual([undefined, 'CVA After']);
+    expect([charge!.diffOnly, columnLabel(charge!, 'diff')]).toEqual([true, 'CVA Charge']);
+    expect([cva!.diffOnly, columnLabel(cva!, 'after')]).toEqual([false, 'CVA After']);
   });
 
-  it("ADR-0010 §7's note of 2026-11-21: a Diff-only metric with no heading is headed by its title over Diff", () => {
-    const column = metricsGrid(metricsTable([{ ...register[0]!, metrics: [{ id: 'cvaCharge', title: 'CVA Charge', diffOnly: true }] }], ['cva'],
-      { xva: answered([row('cva', 'cvaCharge', -125, -187.5)]) })).columns[0]!;
+  it("ADR-0010 §7's note of 2026-11-21: each figure of the one column is said by its sign, a charge below zero and a rebate above, and 0 is neither", () => {
+    const cases = [['c1', 'Adds risk', -125, -187.5], ['c2', 'Takes risk away', -125, -100], ['c3', 'Rounds to 0', -125, -125.4]] as const;
+    const grid = metricsGrid(metricsTable(register, ['cva'], { xva: answered(cases.map(([id, title, before, after]) =>
+      row('cva', 'cvaCharge', before, after, { case: id, caseTitle: title }))) }));
+    const shown = (title: string) => shownCell(grid.rows.find((r) => r.title === title)!.cells['cva.cvaCharge']!, 'diff');
 
-    expect([column.sides, column.heading, columnLabel(column, 'diff')]).toEqual([['diff'], undefined, 'CVA Charge Diff']);
+    expect(shown('Adds risk')).toEqual({ text: '-63', status: 'priced', negative: true, note: 'Charge' });
+    // A rebate keeps its sign as the other columns do; the word says what it is.
+    expect(shown('Takes risk away')).toEqual({ text: '25', status: 'priced', note: 'Rebate' });
+    // -0.4 is shown as 0, with no sign, so it is said neither a charge nor a rebate.
+    expect(shown('Rounds to 0')).toEqual({ text: '0', status: 'priced' });
   });
 
-  it("ADR-0010 §7's note of 2026-11-21: with Before priced nowhere, a metric shown by its Diff alone shows its After in its one column, named, since its heading names no side", () => {
+  it("ADR-0010 §7's note of 2026-11-21: a Diff-only metric that registers no sign words shows its figure alone, under its title", () => {
+    const column = metricsTable([{ ...register[0]!, metrics: [{ id: 'cvaCharge', title: 'CVA Charge', diffOnly: true }] }], ['cva'],
+      { xva: answered([row('cva', 'cvaCharge', -125, -187.5)]) });
+    const grid = metricsGrid(column);
+
+    expect([grid.columns[0]!.sides, columnLabel(grid.columns[0]!, 'diff')]).toEqual([['diff'], 'CVA Charge']);
+    expect(shownCell(column.lines[0]!, 'diff')).toEqual({ text: '-63', status: 'priced', negative: true });
+  });
+
+  it("ADR-0010 §7's note of 2026-11-21: with Before priced nowhere, a metric shown by its Diff alone shows its After in its one column, said by its sign and named, since its title names no side; a Before alone is named and not said a charge", () => {
     const grid = metricsGrid(metricsTable(register, ['cva'], { xva: answered([row('cva', 'cva', null, -150), row('cva', 'cvaCharge', null, -187.5)]) }));
 
     expect(grid.columns.map((c) => [c.metricTitle, c.sides])).toEqual([['CVA', ['after']], ['CVA Charge', ['diff']]]);
-    expect(shownCell(grid.rows[0]!.cells['cva.cvaCharge']!, 'diff')).toEqual({ text: '-188', status: 'priced', negative: true, note: 'After' });
-    // With After priced nowhere, the Before alone stands there, named: a level, never taken for what a case adds.
+    expect(shownCell(grid.rows[0]!.cells['cva.cvaCharge']!, 'diff')).toEqual({ text: '-188', status: 'priced', negative: true, note: 'Charge (After)' });
+    // With After priced nowhere, the Before alone stands there, named: a level the case takes away, never taken for what
+    // it adds, so its sign says neither a charge nor a rebate.
     const before = metricsGrid(metricsTable(register, ['cva'], { xva: answered([row('cva', 'cvaCharge', -125, null)]) }));
     expect(shownCell(before.rows[0]!.cells['cva.cvaCharge']!, 'diff')).toEqual({ text: '-125', status: 'priced', negative: true, note: 'Before' });
+    // With no sign words registered, the side alone is named.
+    const unsigned = metricsTable([{ ...register[0]!, metrics: [{ id: 'cvaCharge', title: 'CVA Charge', diffOnly: true }] }], ['cva'],
+      { xva: answered([row('cva', 'cvaCharge', null, -187.5)]) });
+    expect(shownCell(unsigned.lines[0]!, 'diff')).toEqual({ text: '-188', status: 'priced', negative: true, note: 'After' });
   });
 
   it("ADR-0010 §7's note of 2026-11-21: where a case has no Diff, its one cell says the side it has, named, or the word for why there is none, never blank or 0", () => {
@@ -174,9 +193,9 @@ describe('metricsGrid', () => {
     const charge = (caseTitle: string) => grid.rows.find((r) => r.title === caseTitle)!.cells['cva.cvaCharge']!;
 
     expect(grid.columns.find((c) => c.key === 'cva.cvaCharge')!.sides).toEqual(['diff']);
-    expect(shownCell(charge('Workspace'), 'diff')).toEqual({ text: '-63', status: 'priced', negative: true });
+    expect(shownCell(charge('Workspace'), 'diff')).toEqual({ text: '-63', status: 'priced', negative: true, note: 'Charge' });
     // A one-sided case among two-sided ones gives the charge it adds, as the collapsed line does.
-    expect(shownCell(charge('CSA-A threshold 5mm'), 'diff')).toEqual({ text: '-188', status: 'priced', negative: true, note: 'After' });
+    expect(shownCell(charge('CSA-A threshold 5mm'), 'diff')).toEqual({ text: '-188', status: 'priced', negative: true, note: 'Charge (After)' });
 
     const refused = { beforeStatus: 'refused', afterStatus: 'refused', reason: 'No CDS for ABC/LE-01.' };
     const said = metricsTable(register, ['cva'], { xva: answered([row('cva', 'cvaCharge', null, null, refused)]) }).lines[0]!;
