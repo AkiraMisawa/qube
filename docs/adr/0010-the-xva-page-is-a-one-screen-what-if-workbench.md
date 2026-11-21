@@ -437,7 +437,7 @@ so a press a moment after a trade loaded made a Run without them.
 - *Not built here:* what happens when the input changes while a Price runs, the owner's other point that day
   (「プライス中に入力を変えるのも既存のものを止めていいですかと聞くべき」, "changing the input during a Price should ask whether to
   stop the one running", and 「もしくは他のパネルにオープンするよう促すとか」, "or prompt to open it in another panel"), is put
-  to him as a decision of its own, since no Run can be stopped today.
+  to the owner as a decision of its own, since no Run can be stopped today.
 - *Simulated:* the host's PV01 engine answers after 400 ms (`Xva:Pv01DelayMilliseconds`); one with no delay is
   called on the reader's thread and answers as it is asked, so a test that loads a trade and prices it at once does
   not wait.
