@@ -38,11 +38,11 @@ public sealed record MetricDefinition(string Id, string Title, string? Term = nu
 }
 
 /// <summary>
-/// The words a Diff-only Metrics column says by its figures' sign as shown (ADR-0010 §7's note of 2026-11-21).
-/// <paramref name="Below"/> is the word the metric is named by, which heads the column unless every figure is of the other
-/// sign; a figure that is says <paramref name="Above"/> beside it, or the column is headed by it. CVA Charge's are
-/// <c>Charge</c> and <c>Rebate</c>: a case that adds CVA cost, below zero as CVA is, is charged, one that takes it away
-/// rebated. The metric that registers them refuses a blank one, naming itself.
+/// The words a Diff-only Metrics column's heading says by its figures' sign as shown (ADR-0010 §7's note of 2026-11-21):
+/// <paramref name="Below"/> where they are below zero, <paramref name="Above"/> where they are above, and both,
+/// <c>Below/Above</c>, where they differ. <paramref name="Below"/> is also the word the metric is named by, said before any
+/// figure has a sign. CVA Charge's are <c>Charge</c> and <c>Rebate</c>: a case that adds CVA cost, below zero as CVA is,
+/// is charged, one that takes it away rebated. The metric that registers them refuses a blank one, naming itself.
 /// </summary>
 public sealed record SignWords(string Below, string Above);
 

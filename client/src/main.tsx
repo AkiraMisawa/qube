@@ -9,6 +9,7 @@ import '@ex-grid/core/styles.css';
 import '@ex-grid/mantine/styles.css';
 import './theme.css';
 import './shell/shell.css';
+import './platform/tables.css';
 import { App } from './App';
 import { httpApi } from './platform/api';
 import { startTelemetry, telemetry } from './platform/telemetry';

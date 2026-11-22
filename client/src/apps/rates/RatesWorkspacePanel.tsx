@@ -561,8 +561,8 @@ function RiskPanel({ row }: { readonly row: LineRow | undefined }) {
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>Curve</Table.Th>
-                  {ladder.rows.map((r) => <Table.Th key={r.tenor} className="qube-number">{r.tenor}</Table.Th>)}
-                  <Table.Th className="qube-number">Total</Table.Th>
+                  {ladder.rows.map((r) => <Table.Th key={r.tenor} className="qube-column-label">{r.tenor}</Table.Th>)}
+                  <Table.Th className="qube-column-label">Total</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>

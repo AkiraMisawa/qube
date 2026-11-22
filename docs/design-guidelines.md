@@ -105,9 +105,15 @@ WCAG's minimum target size (§8). Smaller controls would save little: the grids,
   context from the shell switches). Controls of one scope are 8px apart (`gap="xs"`/`"sm"`); groups 12px or more.
   Proximity is the cheapest grouping there is ([Strom, design density](#references)).
 - **Numbers.** Quantities are right-aligned, in tabular lining figures (`font-variant-numeric: tabular-nums`, set on
-  every grid by ExGrid's own stylesheet), so that digits of the same place line up. A column header takes
-  its column's alignment. Identifiers that happen to be digits (a Run ID, a trade number) are not quantities and are
-  left-aligned ([Spectrum](#references)).
+  every grid by ExGrid's own stylesheet), so that digits of the same place line up. Identifiers that happen to be
+  digits (a Run ID, a trade number) are not quantities and are left-aligned ([Spectrum](#references)).
+- **A column's label is left-aligned**, over figures as over text: a header is words, not a figure (owner,
+  2026-11-22). In a table, a label over figures takes `qube-column-label` (`client/src/platform/tables.css`), and one
+  over text is left by Mantine's own header style; every grid's header is left unless its column gives `headerAlign`
+  (`QubeGrid`). A title in a table's titles' row is centred, over one column or several (the Metrics' CVA, PV and FVA,
+  the Profile's EE and ENE), and a grid's Header Group reads from its left edge beside its toggle (owner, 2026-11-04,
+  theme.css). *This replaces "a column header takes its column's alignment", which followed Spectrum; shown both, the
+  owner chose words on the left (ADR-0009's note of 2026-11-22).*
 - **Content in a row is vertically centred**, text and controls alike ([Spectrum](#references)).
 - **Column widths.** Every data grid takes `onColumnWidthChanged` through `useColumnWidths`
   (`client/src/platform/grid/columnWidths.ts`): a drag on a header's right edge moves the column (owner, 2026-11-10),

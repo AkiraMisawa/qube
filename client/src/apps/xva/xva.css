@@ -19,12 +19,6 @@
   text-align: center;
 }
 
-/* A heading in tiers (ADR-0010 §7's note of 2026-11-21): a line each, `CVA` over `Charge`, aligned as its column's
-   figures are. */
-.qube-xva-result-heading-line {
-  display: block;
-}
-
 /* A status in words (`not priced`, `unavailable`, `refused`) is the signal, set apart from the figures by its face
    and never dimmed: the user must read it (docs/design-guidelines.md §7). */
 .qube-xva-result-word {
@@ -48,9 +42,9 @@
   color: var(--mantine-color-text);
 }
 
-/* A note before its figure (spot IM's governing regime, ADR-0012 §7; a figure's own sign word, ADR-0010 §7's note of
-   2026-11-21), a space apart, in the text colour: it is read with the figure, so it is never dimmed. Upright, as the
-   figure is, whatever a word beside it is. */
+/* A note before its figure (spot IM's governing regime, ADR-0012 §7; a Before alone, ADR-0010 §7's note of 2026-11-21),
+   a space apart, in the text colour: it is read with the figure, so it is never dimmed. Upright, as the figure is,
+   whatever a word beside it is. */
 .qube-xva-result-cell-note {
   margin-inline-end: var(--mantine-spacing-xs);
   font-style: normal;

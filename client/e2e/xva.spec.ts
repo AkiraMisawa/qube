@@ -37,13 +37,22 @@ async function placeOf(locator: Locator): Promise<{ x: number; y: number; width:
 /** What the open line says of its chain (ADR-0016 §9, note 24): the last it draws, a line that ran as `› <line>` and a notice as its sentence. */
 const saidIn = (page: Page) => page.getByTestId('command-said').locator('[data-kind]');
 /**
- * CVA Charge's one Metrics column where every case adds CVA cost (ADR-0010 §7's note of 2026-11-21): headed `CVA` over
- * `Charge`, and each case's figure alone, below zero, with no word beside it.
+ * CVA Charge's one Metrics column where every case adds CVA cost (ADR-0010 §7's note of 2026-11-21): `CVA` in the
+ * titles' row beside CVA's own, `Charge` left-aligned in the sides' row, and each case's figure alone, below zero, with no word beside
+ * it.
  */
 async function expectCharges(metrics: Locator): Promise<void> {
-  await expect(metrics.getByTestId('xva-result-heading').locator('span')).toHaveText(['CVA', 'Charge']);
+  await expect(metrics.locator('thead tr').first().locator('th')).toHaveText(['Case', 'CVA', 'CVA', 'PV', 'FVA']);
+  await expect(metrics.getByTestId('xva-result-heading-word')).toHaveText('Charge');
+  // The titles' row is centred; the sides' row is words, left-aligned over right-aligned figures (owner, 2026-11-22,
+  // docs/design-guidelines.md §4).
+  await expect(metrics.getByTestId('xva-result-heading-title')).toHaveCSS('text-align', 'center');
+  await expect(metrics.getByTestId('xva-result-heading-word')).toHaveCSS('text-align', 'start');
   const column = await metricsColumn(metrics, 'CVA Charge');
-  for (const row of await metrics.locator('tbody tr').all()) await expect(row.locator('td').nth(column)).toHaveText(/^-[1-9][\d,]*$/);
+  for (const row of await metrics.locator('tbody tr').all()) {
+    await expect(row.locator('td').nth(column)).toHaveText(/^-[1-9][\d,]*$/);
+    await expect(row.locator('td').nth(column)).toHaveCSS('text-align', 'right');
+  }
 }
 
 test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves its curve, and Price lands in the Pricing DB', async ({ page }) => {
@@ -606,7 +615,7 @@ test('ADR-0010 §3, §9, ADR-0016 note 28: `vary` says the cases it would make, 
   await expect(metrics.getByRole('rowheader')).toHaveText(['Base', 'CSA-A threshold 200mm', 'CSA-A threshold 50mm']);
   // CVA Charge is what a case adds, so it is one column, headed `CVA` over `Charge` with no Diff under it, while CVA
   // keeps its three; each case's figure there stands alone (ADR-0010 §7's note of 2026-11-21).
-  await expect(metrics.getByRole('columnheader', { name: /^CVA (Charge|Rebate)$/ })).toHaveCount(1);
+  await expect(metrics.getByRole('columnheader', { name: /^CVA (Charge|Rebate|Charge\/Rebate)$/ })).toHaveCount(1);
   await expect(metrics.getByRole('columnheader', { name: /^CVA (Before|After|Diff)$/ })).toHaveText(['Before', 'After', 'Diff']);
   await expectCharges(metrics);
   // Collapsed, the dock keeps a line per case with each measure's headline Diff (ADR-0010 §7).

@@ -81,11 +81,11 @@ function ProfileGrid({ table }: { readonly table: ProfileTable }) {
         <Table.Thead>
           <Table.Tr>
             <Table.Th rowSpan={2}>Date</Table.Th>
-            <Table.Th rowSpan={2} className="qube-number">Years</Table.Th>
+            <Table.Th rowSpan={2} className="qube-column-label">Years</Table.Th>
             {table.series.map((s) => <Table.Th key={s.id} colSpan={sides.length} className="qube-xva-result-group">{s.title}</Table.Th>)}
           </Table.Tr>
           <Table.Tr>
-            {table.series.flatMap((s) => sides.map(([side, title]) => <Table.Th key={`${s.id}.${side}`} className="qube-number" aria-label={`${s.title} ${title}`}>{title}</Table.Th>))}
+            {table.series.flatMap((s) => sides.map(([side, title]) => <Table.Th key={`${s.id}.${side}`} className="qube-column-label" aria-label={`${s.title} ${title}`}>{title}</Table.Th>))}
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>

@@ -4343,21 +4343,32 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
 
 The owner: CVA Charge needs one column; of Before, After and Diff, Diff is enough. Then, the same day: write CVA
 charge or rebate in two tiers; Diff is not needed. Then: not "charge or rebate", switch it by the sign. Then, that
-evening: the header shows CVA Charge broken over two lines, and the cells only the figures.
+evening: the header shows CVA Charge broken over two lines, and the cells only the figures. Then, past midnight: where
+there are both charges and rebates, write Charge/Rebate; and the heading should line up with the others. Then, on
+2026-11-22: isn't right-aligning for numbers alone; the header's first row centred and its second left-aligned; and, shown it,
+left-aligned on every screen (ADR-0009's note of 2026-11-22).
 
 ### What runs
 
-- The Metrics dock draws CVA Charge as one column, headed `CVA` over `Charge` in one header cell standing in both rows,
-  with no `Diff` under it; CVA, PV and FVA keep Before, After and Diff. The collapsed line, Copy quote, the Risks and
-  Profile tabs are unchanged.
-- The heading switches by the sign: `CVA` over `Rebate` where every case's figure that has a sign is above zero (the
-  case takes CVA cost away), over `Charge` otherwise, as before any figure arrives. It reads the figures as shown, for
-  the market in view; a figure shown as 0 has no say.
-- Each cell holds the figure alone, with its sign, as every other Metrics figure does. Where the cases differ in sign,
-  the heading says `Charge` and a figure above zero says its own word beside it (`Rebate 25`), so no figure stands under
-  a word that is not its own (DEFAULT).
+- The Metrics dock draws CVA Charge as one column with no `Diff` under it, headed in the header's two rows as every
+  column is: `CVA` in the titles' row, centred as CVA, PV and FVA are, and `Charge` in the sides' row with Before,
+  After and Diff (the first of three mock-ups, the owner's choice). CVA, PV and FVA keep Before, After and Diff.
+- A column's label is left-aligned on every screen, over figures as over text, and the figures stay right-aligned
+  (owner, 2026-11-22; ADR-0009's note; design guidelines §4, rewritten). A table's label takes `qube-column-label`
+  (`client/src/platform/tables.css`): the Metrics, the Risks and Profile tabs, the Scenarios list's Shifts and the
+  Rates delta ladder. Every grid's header is left unless its column gives `headerAlign` (`labelledColumns`, applied
+  by `QubeGrid`): this moves the headers of the columns that were right-aligned by hand, the Scenarios grid's Size and
+  a dialog's number fields (a trade's PV and Notional legs); a column aligned by its type was headed on the left
+  already. A title over several columns stays centred in a table; a grid's Header Group still reads from its left
+  edge (owner, 2026-11-04). The collapsed line and Copy quote are unchanged, and the Risks and Profile tabs but for
+  their labels' alignment.
+- The word switches by the sign: `Charge` where every case's figure that has a sign is below zero (the case adds CVA
+  cost), `Rebate` where every one is above, and `Charge/Rebate` where they differ; `Charge`, the word the metric is
+  named by, before any figure has a sign (DEFAULT). It reads the figures as shown, for the market in view; a figure
+  shown as 0 has no say.
+- Each cell holds the figure alone, with its sign, as every other Metrics figure does.
 - The words are XVA's registration (`signWords` on `MetricDefinition`: `Charge` below zero, `Rebate` above), and the
-  heading's first line is the measure's title. The server refuses words on a metric not shown by its Diff alone, or a
+  heading's title is the measure's. The server refuses words on a metric not shown by its Diff alone, or a
   blank one, where they are registered, naming the metric and which, and a measure with words on two metrics, which
   would be headed alike; the page takes them as they come. A Diff-only metric with no words is headed by its title.
 - A metric's registration says it is shown by its Diff alone (`diffOnly` on `MetricDefinition`, ADR-0010 §10's
@@ -4376,16 +4387,21 @@ evening: the header shows CVA Charge broken over two lines, and the cells only t
 | Check | Result |
 |---|---|
 | `nix develop -c dotnet test server/Qube.slnx` | 1727 passed |
-| `cd client && npm run typecheck && npm test` | typecheck clean; 570 passed in 52 files |
-| `cd client && npx playwright test e2e/xva.spec.ts e2e/credit.spec.ts` (Chromium, the built client served by the host), the six tests that read the Metrics' columns, `--repeat-each=3` | 18 passed |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 573 passed in 53 files |
+| `cd client && npx playwright test e2e/xva.spec.ts e2e/credit.spec.ts e2e/drafts.spec.ts` (Chromium, the built client served by the host), the six tests that read the Metrics' columns and the draft dialog's test that reads a leg's Notional, `--repeat-each=3` | 21 passed |
+| `cd client && npx playwright test e2e/rates.spec.ts e2e/settings.spec.ts`, the two tests that drag a column's width, since every grid's columns now pass through `labelledColumns` | 2 passed |
 
 The new unit tests failed with the one column taken away (the grid's sides, and the cell of a one-sided case), and
 the browser test's new assertion failed against a build drawing CVA Charge's three columns, then passed with it back.
-The browser tests read a Metrics figure by its column's place under a header that now has a cell standing in both
-rows (`metricsColumn` in `e2e/fixtures.ts`), which fails by name for a column the header does not have.
-The browser tests hold CVA Charge's column, where every case adds CVA cost, to `CVA` over `Charge` and figures alone
-below zero. Looked at in the built client with synthetic data at 1440px in both themes, at 390px, with
-After alone, with a case that takes a trade out (a rebate), and with cases that differ in sign; no console message.
+The browser tests read a Metrics figure by its column's place under the header's two rows (`metricsColumn` in
+`e2e/fixtures.ts`), which fails by name for a column the header does not have. They hold CVA Charge's column, where
+every case adds CVA cost, to `CVA` in the titles' row, centred, `Charge` in the sides' row, left-aligned, and figures
+alone below zero, right-aligned; the draft dialog's test holds a grid's Notional header on the left over right-aligned
+figures. The alignment assertions failed against a build that right-aligned the label, and the grid's against one
+without `labelledColumns`. Looked at in the built client with synthetic data at 1440px in both themes, at 390px, with
+After alone, with a case that takes a trade out (a rebate), and with cases that differ in sign; and, before and after,
+the Risks and Profile tabs, the Scenarios tab, the Rates delta ladder and a trade's legs in its dialog; no console
+message.
 
 ### Providers
 
@@ -4395,8 +4411,12 @@ Unchanged: CVA Charge is the simulated engine's (CVA times the charge ratio).
 
 - A case with no Diff among cases that have one is held by unit tests alone: the synthetic portfolios give no such
   Run, since a case's change applies to both of its sides.
-- A heading of `Rebate`, and a rebate's own word among cases that differ, are held by unit tests and were looked at in
-  the built client. The browser tests' Runs all add trades, so they meet `Charge` alone.
+- `Rebate` and `Charge/Rebate` are held by unit tests and were looked at in the built client. The browser tests' Runs
+  all add trades, so they meet `Charge` alone.
+- Seen and left: at 1440px the Scenarios list's `Remove all` button is cut at the panel's right edge, before this
+  change as after it.
+- Seen and left: the Rates Exchanges table's Amount figures are left-aligned with their currency beside them, against
+  the guidelines' §4 that a quantity is right-aligned; this change moved labels, not figures.
 - PV is still shown Before, After and Diff; the owner asked about CVA Charge alone. Making PV one column too is one
   word in XVA's registration.
 - "The metrics shown are chosen per user and kept" (ADR-0010 §7, DEFAULT) is still not built; this is a fixed choice

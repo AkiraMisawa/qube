@@ -138,7 +138,7 @@ export function XvaScenarios({ shifts, scenarios, actions, height, gridRef, comm
         {scenarios.length > 0 && (
           <Table withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing="xs" fz="sm" aria-label="Scenarios">
             <Table.Thead>
-              <Table.Tr><Table.Th>Price</Table.Th><Table.Th>Scenario</Table.Th><Table.Th className="qube-number">Shifts</Table.Th><Table.Th aria-label="Actions" /></Table.Tr>
+              <Table.Tr><Table.Th>Price</Table.Th><Table.Th>Scenario</Table.Th><Table.Th className="qube-column-label">Shifts</Table.Th><Table.Th aria-label="Actions" /></Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {scenarios.map((s) => (

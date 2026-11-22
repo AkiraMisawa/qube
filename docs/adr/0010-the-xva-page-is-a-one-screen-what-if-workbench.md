@@ -423,8 +423,22 @@ the first case of a measure's membership, which every measure now declares (§10
   sign is above zero, and over `Charge` otherwise, the word the metric is named by, as before any figure arrives or
   where none has a sign. Where the cases differ, the heading says `Charge`, and a figure of the other sign says its own
   word beside it (`Rebate 25`), so no figure stands under a word that is not its own; that is the one place a cell
-  holds a word (DEFAULTs). A figure shown as 0 has no sign and no say. The heading reads the figures as shown, as the
-  Metrics in view show them, market by market (§4). Where a case has no Diff, an After where Before held nothing is the
+  holds a word (DEFAULTs). A figure shown as 0 has no sign and no say.
+  *Past midnight, two more answers. On mixed signs ("where there are both charges and rebates, write
+  Charge/Rebate"):* where the cases differ in sign, the word is both, `CVA` over `Charge/Rebate`, and the figures still stand alone. This
+  replaces the fourth answer's DEFAULT for mixed signs (`Charge` over a `Rebate 25`): no cell holds a word now but a
+  Before alone, and `Charge` heads only figures all below zero, or none with a sign. *On the header looking out
+  of line ("CVA Charge alone looks unaligned; centring CVA alone is not it either"), answered by mock-ups,
+  of which the first was taken:* the heading takes the header's two rows as every column does, its title in the
+  titles' row, centred as CVA, PV and FVA are, and its word in the sides' row with Before, After and Diff. This
+  replaces the fourth answer's one cell standing in both rows; a heading with no word still stands in both rows, as
+  the label of its one column. *His seventh and eighth, on 2026-11-22 ("isn't right-aligning for numbers only?", "the
+  header's first row centred and its second left-aligned?"):* the header's labels of one column (Before, After, Diff,
+  the word, a heading with no word) are words, not figures, and are left-aligned, while the figures under them stay
+  right-aligned and the titles' row stays centred. Shown both ways, he chose this for every table and grid of the
+  workbench, not the Metrics alone, so it replaces docs/design-guidelines.md §4's "a column header takes its column's
+  alignment" (ADR-0009's note of 2026-11-22). The heading reads the figures as
+  shown, as the Metrics in view show them, market by market (§4). Where a case has no Diff, an After where Before held nothing is the
   figure alone, all the case adds; a Before alone is still named (`Before -125`), a level the case takes away that has
   no say in the heading. A Diff-only metric that registers no words is headed by its title; a measure may register
   words on one metric only, since two would be headed alike, and is refused otherwise.
@@ -600,8 +614,8 @@ What was XVA's in this ADR, gathered:
   included, advanced
   configuration.
 - **Trade columns**: PV01, Margin and PV Adj (§6).
-- **Results**: CVA Charge in Metrics, by its Diff alone, headed `CVA` over the word its figures' sign says, `Charge`
-  or `Rebate` (§7's note of 2026-11-21),
+- **Results**: CVA Charge in Metrics, by its Diff alone, headed `CVA` over the word its figures' sign says, `Charge`,
+  `Rebate` or, where the cases differ, `Charge/Rebate` (§7's note of 2026-11-21),
   the Risks and Profile tabs (the SIMM and capital profiles MVA and KVA return included, without a trace: only spot
   figures are drilled down), and Copy quote (§7).
 - **Validation**: a missing CDS blocks CVA and CVA Charge (DEFAULT).

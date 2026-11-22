@@ -197,17 +197,21 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th rowSpan={2}>Case</Table.Th>
-                    {/* A metric shown by its Diff alone is headed in both rows, a line a tier, naming no side (§7's note of 2026-11-21). */}
+                    {/* A metric shown by its Diff alone has its title here and its word under it, naming no side; with no word
+                        its title stands in both rows (§7's note of 2026-11-21). */}
                     {grid.columns.map((c) => (c.heading === undefined
                       ? <Table.Th key={c.key} colSpan={c.sides.length} className="qube-xva-result-group">{c.metricTitle}</Table.Th>
-                      : <Table.Th key={c.key} rowSpan={2} className="qube-number" aria-label={columnLabel(c, 'diff')} data-testid="xva-result-heading">
-                        {c.heading.map((l, i) => <span key={i} className="qube-xva-result-heading-line">{l}</span>)}
-                      </Table.Th>))}
+                      : c.heading.word === undefined
+                        ? <Table.Th key={c.key} rowSpan={2} className="qube-column-label" aria-label={columnLabel(c, 'diff')}>{c.heading.title}</Table.Th>
+                        : <Table.Th key={c.key} className="qube-xva-result-group" data-testid="xva-result-heading-title">{c.heading.title}</Table.Th>))}
                   </Table.Tr>
                   <Table.Tr>
-                    {grid.columns.filter((c) => c.heading === undefined).flatMap((c) => c.sides.map((side) => (
-                      <Table.Th key={`${c.key}.${side}`} className="qube-number" aria-label={columnLabel(c, side)}>{SIDE_TITLES[side]}</Table.Th>
-                    )))}
+                    {grid.columns.flatMap((c) => (c.heading === undefined
+                      ? c.sides.map((side) => (
+                        <Table.Th key={`${c.key}.${side}`} className="qube-column-label" aria-label={columnLabel(c, side)}>{SIDE_TITLES[side]}</Table.Th>
+                      ))
+                      : c.heading.word === undefined ? []
+                        : [<Table.Th key={`${c.key}.diff`} className="qube-column-label" aria-label={columnLabel(c, 'diff')} data-testid="xva-result-heading-word">{c.heading.word}</Table.Th>]))}
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
@@ -220,7 +224,7 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
                         // (ADR-0010 §7); a line of no case is one whose module gave no rows, and has no trace to open.
                         const caseId = line?.case;
                         const traced = status !== 'running' && caseId !== undefined && register.find((m) => m.id === line!.measure)?.traced === true;
-                        const cell = line === undefined ? undefined : shownCell(line, side, c);
+                        const cell = line === undefined ? undefined : shownCell(line, side);
                         return <Figure key={`${c.key}.${side}`} cell={cell} line={line} label={columnLabel(c, side)}
                           {...(traced ? { onTrace: () => onTrace(line!.measure, caseId, market.key, line!.term) } : {})} />;
                       }))}

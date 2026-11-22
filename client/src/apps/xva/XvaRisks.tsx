@@ -50,7 +50,7 @@ function Section({ section }: { readonly section: RiskSection }) {
           <Table.Thead>
             <Table.Tr>
               <Table.Th>Risk class</Table.Th><Table.Th>Factor</Table.Th><Table.Th>Bump</Table.Th>
-              {sides.map(([side, title]) => <Table.Th key={side} className="qube-number">{title}</Table.Th>)}
+              {sides.map(([side, title]) => <Table.Th key={side} className="qube-column-label">{title}</Table.Th>)}
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>

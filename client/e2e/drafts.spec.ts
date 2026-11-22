@@ -174,6 +174,9 @@ test('ADR-0016 notes 55 to 57: Space on a row\'s button opens its dialog; a cell
   await expect(lines).toContainText(`set legs ${TRADE}/1 notional 4bn`);
   await expect(await under(legs(page), leg(page, 1), 'Notional')).toHaveText('4,000,000,000');
   await expect(await under(legs(page), leg(page, 1), 'Draft')).toHaveText('changed');
+  // A figure column's header is words, left-aligned over its right-aligned figures (ADR-0009's note of 2026-11-22).
+  await expect(legs(page).getByRole('columnheader', { name: 'Notional', exact: true })).toHaveCSS('text-align', 'left');
+  await expect(await under(legs(page), leg(page, 1), 'Notional')).toHaveCSS('text-align', 'right');
 
   // A leg's Remove is a line too; pressed again on the leg it removed, the server's refusal is said under the grid.
   await press(leg(page, 2).getByRole('button', { name: 'Remove' }));
