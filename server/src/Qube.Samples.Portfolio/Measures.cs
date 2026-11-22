@@ -11,9 +11,40 @@ namespace Qube.Samples.Portfolio;
 /// <summary>
 /// One figure a measure reports, such as CVA's CVA Charge. <paramref name="Term"/> is the term of the measure's trace its
 /// Metrics cell opens, where the trace has several roots, as spot IM's IM-R opens at <c>collect</c> (ADR-0010 §7's note
-/// of 2026-11-08); none opens the trace at its roots.
+/// of 2026-11-08); none opens the trace at its roots. <paramref name="DiffOnly"/> says the Metrics show it by its Diff
+/// alone, one column with no side under it where the others have Before, After and Diff, as CVA Charge (§7's note of
+/// 2026-11-21). It is how the figure is shown, never what is priced: the request still prices both sides and the Run
+/// keeps them. <paramref name="SignWords"/> head that column in two tiers, its measure's title over the word its figures'
+/// sign says, as CVA Charge's <c>CVA</c> over <c>Charge</c> (the note's third and fourth answers; the page's
+/// <c>headingOf</c> says how); a metric with none is headed by its title. Only a metric shown by its Diff alone has them,
+/// and neither is blank.
 /// </summary>
-public sealed record MetricDefinition(string Id, string Title, string? Term = null);
+public sealed record MetricDefinition(string Id, string Title, string? Term = null, bool DiffOnly = false, SignWords? SignWords = null)
+{
+    /// <summary>Whether the Metrics show the metric by its Diff alone; fixed with its sign words, never changed apart from them.</summary>
+    public bool DiffOnly { get; } = DiffOnly;
+
+    /// <summary>The words the one column's heading says by its figures' sign; none where it is headed by its title.</summary>
+    public SignWords? SignWords { get; } = SignWordsProblem(Id, DiffOnly, SignWords) is { } problem
+        ? throw new ArgumentException(problem, nameof(SignWords))
+        : SignWords;
+
+    static string? SignWordsProblem(string id, bool diffOnly, SignWords? words) =>
+        words is null ? null
+        : !diffOnly ? $"Metric {id} has sign words but is not shown by its Diff alone: only its one column's heading says them."
+        : string.IsNullOrWhiteSpace(words.Below) ? $"Metric {id}'s word for a figure below zero is blank."
+        : string.IsNullOrWhiteSpace(words.Above) ? $"Metric {id}'s word for a figure above zero is blank."
+        : null;
+}
+
+/// <summary>
+/// The words a Diff-only Metrics column's heading says by its figures' sign as shown (ADR-0010 §7's note of 2026-11-21):
+/// <paramref name="Below"/> where they are below zero, <paramref name="Above"/> where they are above, and both,
+/// <c>Below/Above</c>, where they differ. <paramref name="Below"/> is also the word the metric is named by, said before any
+/// figure has a sign. CVA Charge's are <c>Charge</c> and <c>Rebate</c>: a case that adds CVA cost, below zero as CVA is,
+/// is charged, one that takes it away rebated. The metric that registers them refuses a blank one, naming itself.
+/// </summary>
+public sealed record SignWords(string Below, string Above);
 
 /// <summary>
 /// A measure as its module registers it. <paramref name="Headline"/> is the metric the collapsed result line shows.
@@ -23,7 +54,16 @@ public sealed record MetricDefinition(string Id, string Title, string? Term = nu
 /// <paramref name="Tabs"/> the result tabs it draws beside Metrics (§7, §10), none where it has no tab of its own.
 /// </summary>
 public sealed record MeasureDefinition(string Id, string Title, IReadOnlyList<MetricDefinition> Metrics, string Headline, bool DeclaresMembership, bool Traced,
-    bool Quoted = false, IReadOnlyList<ResultTab>? Tabs = null);
+    bool Quoted = false, IReadOnlyList<ResultTab>? Tabs = null)
+{
+    /// <summary>
+    /// The figures it reports. At most one has sign words: each is headed by the measure's title over its word (ADR-0010
+    /// §7's note of 2026-11-21), so two would read alike, in the Metrics and to a screen reader.
+    /// </summary>
+    public IReadOnlyList<MetricDefinition> Metrics { get; } = Metrics.Count(m => m.SignWords is not null) > 1
+        ? throw new ArgumentException($"Measure {Id} has more than one metric with sign words: each would be headed {Title} over the same words.", nameof(Metrics))
+        : Metrics;
+}
 
 /// <summary>
 /// A result tab a measure registers beside Metrics (ADR-0010 §7, §10), such as spot IM's <c>SIMM</c>. <paramref name="View"/>

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import type { Locator, Page } from '@playwright/test';
-import { command, expect, newWorkspace, open, settled, test, textBelowContrast, taken } from './fixtures';
+import { command, expect, metricsColumn, newWorkspace, open, settled, test, textBelowContrast, taken } from './fixtures';
 
 // Slice 02 (docs/plans/slice-02-xva-workspace.md): the XVA workspace and the Pricing DB, driven by keyboard.
 
@@ -36,6 +36,24 @@ async function placeOf(locator: Locator): Promise<{ x: number; y: number; width:
 }
 /** What the open line says of its chain (ADR-0016 §9, note 24): the last it draws, a line that ran as `› <line>` and a notice as its sentence. */
 const saidIn = (page: Page) => page.getByTestId('command-said').locator('[data-kind]');
+/**
+ * CVA Charge's one Metrics column where every case adds CVA cost (ADR-0010 §7's note of 2026-11-21): `CVA` in the
+ * titles' row beside CVA's own, `Charge` left-aligned in the sides' row, and each case's figure alone, below zero, with no word beside
+ * it.
+ */
+async function expectCharges(metrics: Locator): Promise<void> {
+  await expect(metrics.locator('thead tr').first().locator('th')).toHaveText(['Case', 'CVA', 'CVA', 'PV', 'FVA']);
+  await expect(metrics.getByTestId('xva-result-heading-word')).toHaveText('Charge');
+  // The titles' row is centred; the sides' row is words, left-aligned over right-aligned figures (owner, 2026-11-22,
+  // docs/design-guidelines.md §4).
+  await expect(metrics.getByTestId('xva-result-heading-title')).toHaveCSS('text-align', 'center');
+  await expect(metrics.getByTestId('xva-result-heading-word')).toHaveCSS('text-align', 'start');
+  const column = await metricsColumn(metrics, 'CVA Charge');
+  for (const row of await metrics.locator('tbody tr').all()) {
+    await expect(row.locator('td').nth(column)).toHaveText(/^-[1-9][\d,]*$/);
+    await expect(row.locator('td').nth(column)).toHaveCSS('text-align', 'right');
+  }
+}
 
 test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves its curve, and Price lands in the Pricing DB', async ({ page }) => {
   await open(page);
@@ -70,7 +88,12 @@ test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves it
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   // No existing trade: Before has nothing to price, so the dock draws After alone and says so once (ADR-0010 §7).
   await expect(result.getByTestId('xva-result-note')).toHaveText('After only: Before was not priced');
-  await expect(result.getByRole('columnheader', { name: 'CVA Charge After' })).toBeVisible();
+  // CVA Charge's one column shows the After alone, all a case adds where Before held nothing: the figure, no word
+  // (ADR-0010 §7's note of 2026-11-21).
+  const metrics = result.getByRole('table', { name: 'Metrics' });
+  await expectCharges(metrics);
+  await expect(metrics.getByTestId('xva-result-cell-note')).toHaveCount(0);
+  await expect(result.getByRole('columnheader', { name: 'CVA After' })).toBeVisible();
   await expect(result.getByRole('columnheader', { name: 'CVA Before' })).toHaveCount(0);
   await expect(result.getByTestId('xva-result-revision')).toHaveText(/^revision \d+$/);
   await result.getByRole('button', { name: 'Open run' }).click();
@@ -590,6 +613,11 @@ test('ADR-0010 §3, §9, ADR-0016 note 28: `vary` says the cases it would make, 
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   const metrics = result.getByRole('table', { name: 'Metrics' });
   await expect(metrics.getByRole('rowheader')).toHaveText(['Base', 'CSA-A threshold 200mm', 'CSA-A threshold 50mm']);
+  // CVA Charge is what a case adds, so it is one column, headed `CVA` over `Charge` with no Diff under it, while CVA
+  // keeps its three; each case's figure there stands alone (ADR-0010 §7's note of 2026-11-21).
+  await expect(metrics.getByRole('columnheader', { name: /^CVA (Charge|Rebate|Charge\/Rebate)$/ })).toHaveCount(1);
+  await expect(metrics.getByRole('columnheader', { name: /^CVA (Before|After|Diff)$/ })).toHaveText(['Before', 'After', 'Diff']);
+  await expectCharges(metrics);
   // Collapsed, the dock keeps a line per case with each measure's headline Diff (ADR-0010 §7).
   await result.getByRole('button', { name: 'Collapse' }).click();
   await expect(result.getByTestId('xva-result-lines').locator('p')).toHaveText([/^Base · CVA Diff /, /^CSA-A threshold 200mm · CVA Diff /, /^CSA-A threshold 50mm · CVA Diff /]);
@@ -2298,7 +2326,7 @@ test('ADR-0010 §4, ADR-0016 note 32: `scenario` says the scenario it would make
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/ · Revision \d+ · Scenario up · JPY\n/);
 });
 
-test('ADR-0010 §4: a block pasted onto the Scenarios grid makes its shifts, and the include box and Duplicate act on a scenario, by keyboard', async ({ page }) => {
+test('ADR-0010 §4, ADR-0009: a block pasted onto the Scenarios grid makes its shifts, and the include box and Duplicate act on a scenario, by keyboard; Remove all stays whole', async ({ page }) => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
@@ -2328,6 +2356,15 @@ test('ADR-0010 §4: a block pasted onto the Scenarios grid makes its shifts, and
   await expect(page.getByTestId('notice')).toHaveText('Price leaves the scenario down out; its shifts stay.');
   await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 2 markets');
   await expect(shifts.getByRole('row', { name: /^down IR jpy_ois 5y abs -3bp/ })).toHaveCount(1);
+  // Remove all keeps its words whole beside the summary, which wraps instead (it was cut to `Remove a`, 2026-11-22).
+  const clear = page.getByRole('button', { name: 'Remove all' });
+  await expect(clear).toBeVisible();
+  // The words' own box clips them, not the button's: it is the one whose content is wider than it.
+  expect(await clear.evaluate((button) => {
+    const words = [...button.querySelectorAll('*')].find((e) => e.children.length === 0 && e.textContent === 'Remove all');
+    if (words === undefined) throw new Error('Remove all holds its words in no element of its own.');
+    return words.scrollWidth - words.clientWidth;
+  })).toBe(0);
 
   // Duplicate copies a scenario's shifts under the name typed.
   await list.getByRole('button', { name: 'Duplicate up' }).focus();

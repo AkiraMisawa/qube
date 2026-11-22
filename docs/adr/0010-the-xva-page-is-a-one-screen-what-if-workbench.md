@@ -388,6 +388,60 @@ the first case of a measure's membership, which every measure now declares (§10
   its handle sets (CONFIRMED, owner 2026-11-08). `dock full` widens it again and `open result <tab>` shows a tab. Below
   `sm` the dock is already the page's Results section, and stays so. The tab of a measure priced on no side says why,
   as the Metrics do, rather than read a trace that was never written.
+  *Note of 2026-11-21 (owner: "CVA Charge needs one column; of B/A/D, Diff is enough"):* **CVA Charge is shown by
+  its Diff alone.** A metric's registration may say it is shown so (`diffOnly`, §10's results), and its column group
+  is then one column, `Diff`, where every other metric keeps Before, After and Diff; CVA, PV and FVA are unchanged.
+  It is how the figure is shown, not what is priced: the request still prices both sides, the Run keeps them, and
+  Download and Open run show them. Where the Run has no Diff anywhere, as `After only: Before was not priced`, the one
+  column is the side the dock draws, under its name. A case with no Diff among cases that have one shows in that column
+  what the collapsed line shows: its priced side, named beside the figure (`After -188`), or the word for why there is
+  none (`refused`, `unavailable`), never blank and never 0 (DEFAULTs).
+  *The same day, the owner's second answer ("write CVA charge or rebate in two tiers; Diff is not needed"):* the one
+  column is not headed `CVA Charge` over `Diff` any more but `CVA charge` over `or rebate` (sentence case, as
+  docs/design-guidelines.md §10 has labels), one cell standing in both rows of the header, with no side under it. A
+  metric shown by its Diff alone may register such a heading (`heading`, a line a tier, §10's results); one that does
+  not is headed by its title over `Diff`. Since the heading names no side, a Run with one side alone names it in each
+  cell of that column (`After -169,598`), as a case with no Diff does above; this replaces the one column headed by
+  the side the dock draws (DEFAULT).
+  *The same day, the owner's third answer ("not charge or rebate: switch it by the sign"):* the heading in tiers is
+  withdrawn. A metric shown by its Diff alone is headed by its title alone, `CVA Charge`, one cell standing in both rows
+  with no side under it, whether or not it registers words; this replaces both the heading in tiers and the title over
+  `Diff`. **Each figure says by its sign which it is**: `Charge` beside a figure below zero, where the case adds CVA
+  cost, as CVA is negative here, and `Rebate` beside one above zero, where it takes cost away (`Charge -172,632`,
+  `Rebate 7,649`). The header cannot switch, since its cases may differ in sign, so the word is each cell's. It reads
+  the figure as shown, so a figure shown as 0 is neither, and a word never disagrees with its minus sign. The figure
+  keeps its sign, as every other figure in the Metrics does (DEFAULT). A metric registers the words (`signWords`, a word
+  below zero and one above, §10's results); only one shown by its Diff alone may, and the server refuses a blank word,
+  naming the metric. Where a case has no Diff, the side is named: an After, where Before held nothing, is what the case
+  adds and is said by its sign (`Charge (After) -169,598`); a Before alone is a level the case takes away, so it is
+  named and said neither (`Before -125`) (DEFAULTs).
+  *That evening, the owner's fourth answer ("the header shows CVA Charge broken over two lines, and the cells only the
+  figures"):* the words leave the cells and go to the heading. The one column is headed in two tiers, the measure's
+  title over the word its figures' sign says, `CVA` over `Charge`, in one cell standing in both rows of the header, and
+  each cell holds the figure alone, with its sign. **The heading switches by the sign**, as the third answer asked, and
+  so replaces the third answer's "the header cannot switch": `CVA` over `Rebate` where every case's figure that has a
+  sign is above zero, and over `Charge` otherwise, the word the metric is named by, as before any figure arrives or
+  where none has a sign. Where the cases differ, the heading says `Charge`, and a figure of the other sign says its own
+  word beside it (`Rebate 25`), so no figure stands under a word that is not its own; that is the one place a cell
+  holds a word (DEFAULTs). A figure shown as 0 has no sign and no say.
+  *Past midnight, two more answers. On mixed signs ("where there are both charges and rebates, write
+  Charge/Rebate"):* where the cases differ in sign, the word is both, `CVA` over `Charge/Rebate`, and the figures still stand alone. This
+  replaces the fourth answer's DEFAULT for mixed signs (`Charge` over a `Rebate 25`): no cell holds a word now but a
+  Before alone, and `Charge` heads only figures all below zero, or none with a sign. *On the header looking out
+  of line ("CVA Charge alone looks unaligned; centring CVA alone is not it either"), answered by mock-ups,
+  of which the first was taken:* the heading takes the header's two rows as every column does, its title in the
+  titles' row, centred as CVA, PV and FVA are, and its word in the sides' row with Before, After and Diff. This
+  replaces the fourth answer's one cell standing in both rows; a heading with no word still stands in both rows, as
+  the label of its one column. *His seventh and eighth, on 2026-11-22 ("isn't right-aligning for numbers only?", "the
+  header's first row centred and its second left-aligned?"):* the header's labels of one column (Before, After, Diff,
+  the word, a heading with no word) are words, not figures, and are left-aligned, while the figures under them stay
+  right-aligned and the titles' row stays centred. Shown both ways, he chose this for every table and grid of the
+  workbench, not the Metrics alone, so it replaces docs/design-guidelines.md §4's "a column header takes its column's
+  alignment" (ADR-0009's note of 2026-11-22). The heading reads the figures as
+  shown, as the Metrics in view show them, market by market (§4). Where a case has no Diff, an After where Before held nothing is the
+  figure alone, all the case adds; a Before alone is still named (`Before -125`), a level the case takes away that has
+  no say in the heading. A Diff-only metric that registers no words is headed by its title; a measure may register
+  words on one metric only, since two would be headed alike, and is refused otherwise.
 - **Collapsed**, one line per case with each selected measure's headline Diff: CVA Diff and FVA Diff when XVA is
   selected (owner), MVA when it exists.
 - A result older than the workspace says so in yellow: `revision 5 · workspace now 7`.
@@ -523,7 +577,9 @@ that owns a measure registers it with:
 - **trade columns**: what it adds to the trade grids (XVA's PV01, Margin and PV Adj);
 - **results**: its Metrics columns, any result tab of its own, and whether a Metrics cell opens a trace (ADR-0011).
   *(Note of 2026-11-08: a result tab is an id, a title and a view; spot IM's is `SIMM` and spot CCR capital's `CCR`,
-  both drawing their trace, §7's note.)*;
+  both drawing their trace, §7's note.)* *(Note of 2026-11-21: a metric may be shown by its Diff alone, one column of
+  the Metrics, headed in two tiers by the word its figures' sign says where it registers sign words, as CVA Charge is,
+  §7's note.)*;
 - **validation**: what Price needs from it, refused by name. A measure that cannot be priced blocks only itself: a
   missing CDS blocks CVA, not spot IM;
 - **options and commands** of its own.
@@ -558,8 +614,10 @@ What was XVA's in this ADR, gathered:
   included, advanced
   configuration.
 - **Trade columns**: PV01, Margin and PV Adj (§6).
-- **Results**: CVA Charge in Metrics, the Risks and Profile tabs (the SIMM and capital profiles MVA and KVA return
-  included, without a trace: only spot figures are drilled down), and Copy quote (§7).
+- **Results**: CVA Charge in Metrics, by its Diff alone, headed `CVA` over the word its figures' sign says, `Charge`,
+  `Rebate` or, where the cases differ, `Charge/Rebate` (§7's note of 2026-11-21),
+  the Risks and Profile tabs (the SIMM and capital profiles MVA and KVA return included, without a trace: only spot
+  figures are drilled down), and Copy quote (§7).
 - **Validation**: a missing CDS blocks CVA and CVA Charge (DEFAULT).
 
 ## Consequences

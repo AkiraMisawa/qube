@@ -4339,6 +4339,94 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
   ADR-0040) and showed three of its four items in a grid three rows high. At eight rows it shows the four at once
   (seen in the built client).
 
+## CVA Charge shown by its Diff alone (ADR-0010 §7's note of 2026-11-21)
+
+The owner: CVA Charge needs one column; of Before, After and Diff, Diff is enough. Then, the same day: write CVA
+charge or rebate in two tiers; Diff is not needed. Then: not "charge or rebate", switch it by the sign. Then, that
+evening: the header shows CVA Charge broken over two lines, and the cells only the figures. Then, past midnight: where
+there are both charges and rebates, write Charge/Rebate; and the heading should line up with the others. Then, on
+2026-11-22: isn't right-aligning for numbers alone; the header's first row centred and its second left-aligned; and, shown it,
+left-aligned on every screen (ADR-0009's note of 2026-11-22).
+
+### What runs
+
+- The Metrics dock draws CVA Charge as one column with no `Diff` under it, headed in the header's two rows as every
+  column is: `CVA` in the titles' row, centred as CVA, PV and FVA are, and `Charge` in the sides' row with Before,
+  After and Diff (the first of three mock-ups, the owner's choice). CVA, PV and FVA keep Before, After and Diff.
+- A column's label is left-aligned on every screen, over figures as over text, and the figures stay right-aligned
+  (owner, 2026-11-22; ADR-0009's note; design guidelines §4, rewritten). A table's label takes `qube-column-label`
+  (`client/src/platform/tables.css`): the Metrics, the Risks and Profile tabs, the Scenarios list's Shifts and the
+  Rates delta ladder. Every grid's header is left unless its column gives `headerAlign` (`labelledColumns`, applied
+  by `QubeGrid`): this moves the headers of the columns that were right-aligned by hand, the Scenarios grid's Size and
+  a dialog's number fields (a trade's PV and Notional legs); a column aligned by its type was headed on the left
+  already. A title over several columns stays centred in a table; a grid's Header Group still reads from its left
+  edge (owner, 2026-11-04).
+- Two defects seen while looking, fixed at the owner's word (2026-11-22): the Scenarios list's `Remove all` was cut to
+  `Remove a` beside the summary, since both shrank to share a line too narrow for the two; it now keeps its width, at
+  every panel width, and the summary wraps. A CCS line's notional exchanges showed each amount left-aligned with its
+  currency after it; the amount is now a quantity, right-aligned and grouped, under a left label, and the currency has
+  a column of its own so the digits line up. It is marked red when negative as every amount is (C48), which no
+  exchange is today: a schedule refuses a notional that is not above zero.
+- The collapsed line and Copy quote are unchanged, and the Risks and Profile tabs but for
+  their labels' alignment.
+- The word switches by the sign: `Charge` where every case's figure that has a sign is below zero (the case adds CVA
+  cost), `Rebate` where every one is above, and `Charge/Rebate` where they differ; `Charge`, the word the metric is
+  named by, before any figure has a sign (DEFAULT). It reads the figures as shown, for the market in view; a figure
+  shown as 0 has no say.
+- Each cell holds the figure alone, with its sign, as every other Metrics figure does.
+- The words are XVA's registration (`signWords` on `MetricDefinition`: `Charge` below zero, `Rebate` above), and the
+  heading's title is the measure's. The server refuses words on a metric not shown by its Diff alone, or a
+  blank one, where they are registered, naming the metric and which, and a measure with words on two metrics, which
+  would be headed alike; the page takes them as they come. A Diff-only metric with no words is headed by its title.
+- A metric's registration says it is shown by its Diff alone (`diffOnly` on `MetricDefinition`, ADR-0010 §10's
+  results), so the page names no measure: XVA registers CVA Charge so, and every other metric of every module is shown
+  as before.
+- Nothing priced changed. XVA's request prices CVA Charge on both sides, the Run keeps Before, After and Diff, and
+  Open run and Download show all three.
+- Where a case has no Diff, the column shows what the collapsed line shows for it: an After where Before held nothing
+  is the figure alone, all the case adds; a Before alone is named (`Before -125`), a level the case takes away, never
+  read as a charge it adds, with no say in the heading; a cell with no figure says `refused`, `unavailable`, `…` or `not
+  priced`, never a blank or 0 (DEFAULTs). The collapsed line reads the same function (`caseAdds`), so the two cannot
+  drift; Copy quote holds the same rule on the server.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | 1727 passed |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 573 passed in 53 files |
+| `cd client && npx playwright test e2e/xva.spec.ts e2e/credit.spec.ts e2e/drafts.spec.ts` (Chromium, the built client served by the host), the six tests that read the Metrics' columns and the draft dialog's test that reads a leg's Notional, `--repeat-each=3` | 21 passed |
+| `cd client && npx playwright test e2e/rates.spec.ts e2e/settings.spec.ts`, the two tests that drag a column's width, since every grid's columns now pass through `labelledColumns` | 2 passed |
+| `cd client && npx playwright test e2e/rates.spec.ts e2e/xva.spec.ts`, the new notional exchanges test and the Scenarios paste test that now holds `Remove all` whole, `--repeat-each=3` | 6 passed |
+
+The new unit tests failed with the one column taken away (the grid's sides, and the cell of a one-sided case), and
+the browser test's new assertion failed against a build drawing CVA Charge's three columns, then passed with it back.
+The browser tests read a Metrics figure by its column's place under the header's two rows (`metricsColumn` in
+`e2e/fixtures.ts`), which fails by name for a column the header does not have. They hold CVA Charge's column, where
+every case adds CVA cost, to `CVA` in the titles' row, centred, `Charge` in the sides' row, left-aligned, and figures
+alone below zero, right-aligned; the draft dialog's test holds a grid's Notional header on the left over right-aligned
+figures; the exchanges test holds an amount right under a left label; the Scenarios test holds `Remove all`'s words
+whole. Each failed against a build without its fix (the label right, a grid without `labelledColumns`, the amount
+`start`, the words 11px wider than their box). Looked at in the built client with synthetic data at 1440px in both themes, at 390px, with
+After alone, with a case that takes a trade out (a rebate), and with cases that differ in sign; and, before and after,
+the Risks and Profile tabs, the Scenarios tab, the Rates delta ladder and a trade's legs in its dialog; and a CCS
+line's notional exchanges in both themes; no console message.
+
+### Providers
+
+Unchanged: CVA Charge is the simulated engine's (CVA times the charge ratio).
+
+### Known limits
+
+- A case with no Diff among cases that have one is held by unit tests alone: the synthetic portfolios give no such
+  Run, since a case's change applies to both of its sides.
+- `Rebate` and `Charge/Rebate` are held by unit tests and were looked at in the built client. The browser tests' Runs
+  all add trades, so they meet `Charge` alone.
+- PV is still shown Before, After and Diff; the owner asked about CVA Charge alone. Making PV one column too is one
+  word in XVA's registration.
+- "The metrics shown are chosen per user and kept" (ADR-0010 §7, DEFAULT) is still not built; this is a fixed choice
+  of the registration, not a user's.
+
 ## Next
 
 1. The owner's answer on one package a row or several (ADR-0016 note 90).

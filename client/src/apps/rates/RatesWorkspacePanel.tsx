@@ -561,8 +561,8 @@ function RiskPanel({ row }: { readonly row: LineRow | undefined }) {
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>Curve</Table.Th>
-                  {ladder.rows.map((r) => <Table.Th key={r.tenor} className="qube-number">{r.tenor}</Table.Th>)}
-                  <Table.Th className="qube-number">Total</Table.Th>
+                  {ladder.rows.map((r) => <Table.Th key={r.tenor} className="qube-column-label">{r.tenor}</Table.Th>)}
+                  <Table.Th className="qube-column-label">Total</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -647,16 +647,25 @@ function Cashflows({ panelId, workspaceId, line, revision, api, gridRef, edit, o
   );
 }
 
+/**
+ * A line's notional exchanges. The amount is a quantity: right-aligned in tabular figures, grouped in threes and red
+ * when negative (C48), with its currency in a column of its own so that the digits of every row line up
+ * (docs/design-guidelines.md §4; it stood left with the currency after it until 2026-11-22).
+ */
 function Exchanges({ flows }: { readonly flows: CashflowsView }) {
-  const amount = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
   return (
-    <Table withTableBorder={false} fz="xs">
-      <Table.Thead><Table.Tr><Table.Th>Leg</Table.Th><Table.Th>Exchange</Table.Th><Table.Th>Payment</Table.Th><Table.Th>Amount</Table.Th></Table.Tr></Table.Thead>
+    <Table withTableBorder={false} fz="xs" className="qube-rates-exchanges" aria-label="Notional exchanges">
+      <Table.Thead>
+        <Table.Tr>
+          <Table.Th>Leg</Table.Th><Table.Th>Exchange</Table.Th><Table.Th>Payment</Table.Th><Table.Th>Currency</Table.Th>
+          <Table.Th className="qube-column-label">Amount</Table.Th>
+        </Table.Tr>
+      </Table.Thead>
       <Table.Tbody>
         {flows.exchanges.map((e) => (
           <Table.Tr key={`${e.leg}-${e.kind}`}>
-            <Table.Td>{e.leg}</Table.Td><Table.Td>{e.kind}</Table.Td><Table.Td>{e.paymentDate}</Table.Td>
-            <Table.Td>{amount.format(e.amount)} {e.currency}</Table.Td>
+            <Table.Td>{e.leg}</Table.Td><Table.Td>{e.kind}</Table.Td><Table.Td>{e.paymentDate}</Table.Td><Table.Td>{e.currency}</Table.Td>
+            <Table.Td className="qube-number" {...(isLoss(e.amount) ? { 'data-negative': true } : {})}>{formatAmount(e.amount)}</Table.Td>
           </Table.Tr>
         ))}
       </Table.Tbody>

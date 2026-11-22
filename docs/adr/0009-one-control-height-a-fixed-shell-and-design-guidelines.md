@@ -51,6 +51,16 @@ None of these shows in a unit test, and each looked acceptable in the component 
 DEFAULT: the 30px Control Height stays on touch screens. OPEN: whether a coarse pointer raises the shell's controls
 toward 44px, decided on the iPhone journey (UX02) on a real device.
 
+*Note of 2026-11-22 (the owner, on the XVA Metrics' header, ADR-0010 §7's note of 2026-11-21):* "isn't right-aligning
+for numbers only?", then "the header's first row centred and its second left-aligned?". Shown the Metrics both ways,
+and told that the rule followed Spectrum, and that AG Grid's numeric columns right-align a header with its figures and
+its column groups centre nothing by default, he chose a left-aligned label for every table and grid of the workbench.
+A column's label is left-aligned over figures as over text; a title in a table's titles' row is centred, over one
+column (the Metrics' `CVA` over CVA Charge's word) or several; a grid's Header Group keeps reading from its left edge
+(2026-11-04). Guidelines §4 is rewritten so: a table's label over figures takes `qube-column-label`, and `QubeGrid`
+gives every column with no `headerAlign` of its own a left header, since ExGrid heads a column as its `align` says
+unless told, and so headed a column right-aligned by hand on the right.
+
 ## Consequences
 
 - The header is three zones on one row from `md` up: title and Commands; Region and As of; AI and theme, behind a

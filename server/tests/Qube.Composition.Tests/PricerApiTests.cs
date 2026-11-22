@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
+using Qube.Samples.Portfolio;
 
 namespace Qube.Composition.Tests;
 
@@ -218,6 +219,44 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal(["xva", "xva", "xva", "xva", "simm"], measures.Select(m => m["request"]!.GetValue<string>()));
         Assert.Equal(["cva", "cvaCharge", "pv"], measures[0]["metrics"]!.AsArray().Select(m => m!["id"]!.GetValue<string>()));
         Assert.All(Strings(ws["selectedMeasures"]), m => Assert.Contains(m, measures.Select(r => r["id"]!.GetValue<string>())));
+    }
+
+    [Fact] // ADR-0010 §7's note of 2026-11-21: CVA Charge is shown by its Diff alone, and every other metric by Before, After and Diff
+    public async Task CVA_Charge_alone_is_registered_to_be_shown_by_its_Diff_headed_a_charge_or_a_rebate_by_its_sign()
+    {
+        var ws = await Create();
+
+        var metrics = ws["measures"]!.AsArray().SelectMany(m => m!["metrics"]!.AsArray()
+            .Select(metric => (Key: $"{m["id"]!.GetValue<string>()}.{metric!["id"]!.GetValue<string>()}", Metric: metric!.AsObject()))).ToList();
+
+        Assert.Equal(["cva.cvaCharge"], metrics.Where(m => m.Metric["diffOnly"]!.GetValue<bool>()).Select(m => m.Key));
+        // Below zero the case adds CVA cost and is charged; above, it takes it away and is rebated (the owner's third and
+        // fourth answers of 2026-11-21: the heading says which).
+        var words = metrics.Single(m => m.Key == "cva.cvaCharge").Metric["signWords"]!;
+        Assert.Equal(("Charge", "Rebate"), (words["below"]!.GetValue<string>(), words["above"]!.GetValue<string>()));
+        Assert.All(metrics.Where(m => m.Key != "cva.cvaCharge"), m => Assert.Null(m.Metric["signWords"]));
+    }
+
+    [Theory] // ADR-0010 §7's note of 2026-11-21, spine 1: sign words a metric cannot say are refused where it is registered, naming it and why
+    [InlineData(false, "Charge", "Rebate", "Metric cvaCharge has sign words but is not shown by its Diff alone")]
+    [InlineData(true, "", "Rebate", "Metric cvaCharge's word for a figure below zero is blank.")]
+    [InlineData(true, "Charge", " ", "Metric cvaCharge's word for a figure above zero is blank.")]
+    public void Sign_words_are_refused_on_a_metric_not_shown_by_its_Diff_alone_or_when_one_is_blank(bool diffOnly, string below, string above, string why)
+    {
+        var refused = Assert.Throws<ArgumentException>(() => new MetricDefinition("cvaCharge", "CVA Charge", DiffOnly: diffOnly, SignWords: new(below, above)));
+
+        Assert.StartsWith(why, refused.Message);
+    }
+
+    [Fact] // ADR-0010 §7's note of 2026-11-21, spine 1: two metrics of one measure with sign words would be headed alike, so they are refused, by name
+    public void A_measure_with_two_metrics_with_sign_words_is_refused()
+    {
+        MetricDefinition Signed(string id) => new(id, id, DiffOnly: true, SignWords: new("Charge", "Rebate"));
+
+        var refused = Assert.Throws<ArgumentException>(() => new MeasureDefinition("cva", "CVA", [Signed("cvaCharge"), Signed("fvaCharge")], "cva", false, false));
+
+        Assert.StartsWith("Measure cva has more than one metric with sign words", refused.Message);
+        Assert.Single(new MeasureDefinition("cva", "CVA", [new("cva", "CVA"), Signed("cvaCharge")], "cva", false, false).Metrics, m => m.SignWords is not null);
     }
 
     [Fact] // ADR-0010 §7, §10, ADR-0012 §7: a measure registers its result tabs beside Metrics, as spot IM's SIMM and spot capital's CCR, drawn as a trace

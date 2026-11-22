@@ -1,0 +1,7 @@
+/* A column's label (Before, After, Diff, a tenor, Years, Shifts) is words, not a figure: it starts at its column's left
+   edge whatever the figures under it do, and a title over several columns is centred by its table's own class (owner,
+   2026-11-22, ADR-0009's note; docs/design-guidelines.md §4). Every grid's header takes the same rule from QubeGrid. */
+.qube-column-label {
+  text-align: start;
+  white-space: nowrap;
+}
