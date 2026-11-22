@@ -178,6 +178,9 @@
 /* The list's width: a scenario's name, its shift count and its two buttons on one line, geometry the theme has no
    name for (docs/design-guidelines.md §2). */
 .qube-xva-scenarios-list { flex: 0 0 22rem; min-width: 0; }
+/* Remove all keeps its width beside the summary, which wraps instead: shrunk to share the line, it was cut to `Remove a`
+   (seen 2026-11-22). */
+.qube-xva-scenarios-clear { flex: none; }
 @container qube-panel (width < 768px) {
   .qube-xva-scenarios { flex-direction: column; }
   .qube-xva-scenarios-grid { width: 100%; }

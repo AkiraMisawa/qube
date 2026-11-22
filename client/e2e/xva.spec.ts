@@ -2326,7 +2326,7 @@ test('ADR-0010 §4, ADR-0016 note 32: `scenario` says the scenario it would make
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/ · Revision \d+ · Scenario up · JPY\n/);
 });
 
-test('ADR-0010 §4: a block pasted onto the Scenarios grid makes its shifts, and the include box and Duplicate act on a scenario, by keyboard', async ({ page }) => {
+test('ADR-0010 §4, ADR-0009: a block pasted onto the Scenarios grid makes its shifts, and the include box and Duplicate act on a scenario, by keyboard; Remove all stays whole', async ({ page }) => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
@@ -2356,6 +2356,15 @@ test('ADR-0010 §4: a block pasted onto the Scenarios grid makes its shifts, and
   await expect(page.getByTestId('notice')).toHaveText('Price leaves the scenario down out; its shifts stay.');
   await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 2 markets');
   await expect(shifts.getByRole('row', { name: /^down IR jpy_ois 5y abs -3bp/ })).toHaveCount(1);
+  // Remove all keeps its words whole beside the summary, which wraps instead (it was cut to `Remove a`, 2026-11-22).
+  const clear = page.getByRole('button', { name: 'Remove all' });
+  await expect(clear).toBeVisible();
+  // The words' own box clips them, not the button's: it is the one whose content is wider than it.
+  expect(await clear.evaluate((button) => {
+    const words = [...button.querySelectorAll('*')].find((e) => e.children.length === 0 && e.textContent === 'Remove all');
+    if (words === undefined) throw new Error('Remove all holds its words in no element of its own.');
+    return words.scrollWidth - words.clientWidth;
+  })).toBe(0);
 
   // Duplicate copies a scenario's shifts under the name typed.
   await list.getByRole('button', { name: 'Duplicate up' }).focus();

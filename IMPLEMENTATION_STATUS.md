@@ -4360,7 +4360,14 @@ left-aligned on every screen (ADR-0009's note of 2026-11-22).
   by `QubeGrid`): this moves the headers of the columns that were right-aligned by hand, the Scenarios grid's Size and
   a dialog's number fields (a trade's PV and Notional legs); a column aligned by its type was headed on the left
   already. A title over several columns stays centred in a table; a grid's Header Group still reads from its left
-  edge (owner, 2026-11-04). The collapsed line and Copy quote are unchanged, and the Risks and Profile tabs but for
+  edge (owner, 2026-11-04).
+- Two defects seen while looking, fixed at the owner's word (2026-11-22): the Scenarios list's `Remove all` was cut to
+  `Remove a` beside the summary, since both shrank to share a line too narrow for the two; it now keeps its width, at
+  every panel width, and the summary wraps. A CCS line's notional exchanges showed each amount left-aligned with its
+  currency after it; the amount is now a quantity, right-aligned and grouped, under a left label, and the currency has
+  a column of its own so the digits line up. It is marked red when negative as every amount is (C48), which no
+  exchange is today: a schedule refuses a notional that is not above zero.
+- The collapsed line and Copy quote are unchanged, and the Risks and Profile tabs but for
   their labels' alignment.
 - The word switches by the sign: `Charge` where every case's figure that has a sign is below zero (the case adds CVA
   cost), `Rebate` where every one is above, and `Charge/Rebate` where they differ; `Charge`, the word the metric is
@@ -4390,6 +4397,7 @@ left-aligned on every screen (ADR-0009's note of 2026-11-22).
 | `cd client && npm run typecheck && npm test` | typecheck clean; 573 passed in 53 files |
 | `cd client && npx playwright test e2e/xva.spec.ts e2e/credit.spec.ts e2e/drafts.spec.ts` (Chromium, the built client served by the host), the six tests that read the Metrics' columns and the draft dialog's test that reads a leg's Notional, `--repeat-each=3` | 21 passed |
 | `cd client && npx playwright test e2e/rates.spec.ts e2e/settings.spec.ts`, the two tests that drag a column's width, since every grid's columns now pass through `labelledColumns` | 2 passed |
+| `cd client && npx playwright test e2e/rates.spec.ts e2e/xva.spec.ts`, the new notional exchanges test and the Scenarios paste test that now holds `Remove all` whole, `--repeat-each=3` | 6 passed |
 
 The new unit tests failed with the one column taken away (the grid's sides, and the cell of a one-sided case), and
 the browser test's new assertion failed against a build drawing CVA Charge's three columns, then passed with it back.
@@ -4397,11 +4405,12 @@ The browser tests read a Metrics figure by its column's place under the header's
 `e2e/fixtures.ts`), which fails by name for a column the header does not have. They hold CVA Charge's column, where
 every case adds CVA cost, to `CVA` in the titles' row, centred, `Charge` in the sides' row, left-aligned, and figures
 alone below zero, right-aligned; the draft dialog's test holds a grid's Notional header on the left over right-aligned
-figures. The alignment assertions failed against a build that right-aligned the label, and the grid's against one
-without `labelledColumns`. Looked at in the built client with synthetic data at 1440px in both themes, at 390px, with
+figures; the exchanges test holds an amount right under a left label; the Scenarios test holds `Remove all`'s words
+whole. Each failed against a build without its fix (the label right, a grid without `labelledColumns`, the amount
+`start`, the words 11px wider than their box). Looked at in the built client with synthetic data at 1440px in both themes, at 390px, with
 After alone, with a case that takes a trade out (a rebate), and with cases that differ in sign; and, before and after,
-the Risks and Profile tabs, the Scenarios tab, the Rates delta ladder and a trade's legs in its dialog; no console
-message.
+the Risks and Profile tabs, the Scenarios tab, the Rates delta ladder and a trade's legs in its dialog; and a CCS
+line's notional exchanges in both themes; no console message.
 
 ### Providers
 
@@ -4413,10 +4422,6 @@ Unchanged: CVA Charge is the simulated engine's (CVA times the charge ratio).
   Run, since a case's change applies to both of its sides.
 - `Rebate` and `Charge/Rebate` are held by unit tests and were looked at in the built client. The browser tests' Runs
   all add trades, so they meet `Charge` alone.
-- Seen and left: at 1440px the Scenarios list's `Remove all` button is cut at the panel's right edge, before this
-  change as after it.
-- Seen and left: the Rates Exchanges table's Amount figures are left-aligned with their currency beside them, against
-  the guidelines' §4 that a quantity is right-aligned; this change moved labels, not figures.
 - PV is still shown Before, After and Diff; the owner asked about CVA Charge alone. Making PV one column too is one
   word in XVA's registration.
 - "The metrics shown are chosen per user and kept" (ADR-0010 §7, DEFAULT) is still not built; this is a fixed choice

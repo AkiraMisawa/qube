@@ -132,7 +132,7 @@ export function XvaScenarios({ shifts, scenarios, actions, height, gridRef, comm
               : `${scenarios.length} scenario(s), ${included} included: Price prices the base market and ${included} more.`}
           </Text>
           {scenarios.length > 0 && (
-            <Button size="compact-xs" variant="default" color="red" onClick={actions.clear} title="Remove every scenario, as scenarios clear does">Remove all</Button>
+            <Button size="compact-xs" variant="default" color="red" className="qube-xva-scenarios-clear" onClick={actions.clear} title="Remove every scenario, as scenarios clear does">Remove all</Button>
           )}
         </Group>
         {scenarios.length > 0 && (

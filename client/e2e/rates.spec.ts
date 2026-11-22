@@ -801,6 +801,21 @@ test('ADR-0015 note of 2026-11-14: a line made in a blank row keeps the keyboard
   await expect(end(4)).toHaveText('');
 });
 
+// A line's notional exchanges were left-aligned with the currency after the figure (seen 2026-11-22): an amount is a
+// quantity, right-aligned under its left label, and the currency has a column of its own so the digits line up.
+test('ADR-0009, design guidelines §4: a CCS line\'s notional exchanges are right-aligned amounts under a left label, their currency beside', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page);
+  await taken(page, 'new', 'ccs usd jpy 100mm 15bn 7y pay freq1=3m freq2=3m index1=sofr index2=tona spread2=0bp');
+  await settled(page, 'Lines');
+  await firstLine(page).getByRole('button', { name: 'Flows' }).click();
+  const exchanges = page.getByRole('table', { name: 'Notional exchanges' });
+  const jpy = exchanges.getByRole('row', { name: '2 initial 2026-10-29 JPY 15,000,000,000' });
+  await expect(jpy).toBeVisible();
+  await expect(exchanges.getByRole('columnheader', { name: 'Amount' })).toHaveCSS('text-align', 'start');
+  await expect(jpy.getByRole('cell', { name: '15,000,000,000' })).toHaveCSS('text-align', 'right');
+});
+
 // The owner's switch of 2026-11-17: a line that asks for risk shows its deltas under the result strip, tenors across and
 // curves down, par (per quote) by default and zero (per curve node) on the switch. The market holds the curves and their
 // Jacobians (ADR-0020), so the simulated provider returns both.
